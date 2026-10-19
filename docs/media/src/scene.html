@@ -103,6 +103,28 @@
   .badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: #ffffff10; border: 1px solid #ffffff1c; font: 500 16px var(--sans); color: var(--ink); }
   .mono { font-family: var(--mono); }
   canvas.octo { image-rendering: pixelated; display: block; }
+
+  /* --- feature loops ------------------------------------------------------------- */
+  #stage.flat { background: #0e0f14; } #stage.flat::after { display: none; }
+  .closeq { font: 600 11px var(--sans); color: #fff; background: var(--red); border-radius: 8px; padding: 2px 8px; }
+  .xbtn { width: 18px; height: 18px; border-radius: 9px; display: grid; place-items: center; color: var(--ink2); }
+  .cursor { position: absolute; z-index: 20; pointer-events: none; }
+  .ripple { position: absolute; z-index: 19; border-radius: 50%; border: 2px solid #ffffffb0; }
+  .menu { position: absolute; z-index: 15; background: #2a2a2ef7; border: 1px solid #ffffff26; border-radius: 9px; padding: 5px;
+          box-shadow: 0 12px 34px #000a; font: 13px var(--sans); color: var(--ink); }
+  .mi { height: 22px; padding: 0 10px; border-radius: 5px; display: flex; align-items: center; white-space: nowrap; }
+  .mi.on { background: #2f6fe0; color: #fff; } .mi.red { color: #FF6961; } .mi .arr { margin-left: auto; padding-left: 18px; opacity: .7; }
+  .msep { height: 1px; margin: 5px 8px; background: #ffffff1f; }
+  .tbtns { display: flex; gap: 2px; align-self: center; margin-left: auto; flex: none; }
+  .tbtn { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: var(--ink2); }
+  .tbtn svg { width: 15px; height: 15px; }
+  .ttab { min-width: 0; overflow: hidden; }
+  .tip { position: absolute; z-index: 16; background: #3a3a40; border: 1px solid #ffffff26; color: #fff; font: 12px var(--sans); padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+  .note { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; z-index: 30; }
+  .note span { display: inline-block; font: 500 13px var(--sans); color: #fff; background: #26262cf0; border: 1px solid #ffffff24; padding: 6px 13px; border-radius: 999px; }
+  .bigkeys { position: absolute; z-index: 30; display: flex; gap: 8px; }
+  .bigkeys b { font: 600 24px var(--sans); color: #fff; min-width: 46px; height: 46px; padding: 0 10px; display: grid; place-items: center;
+               background: #2c2c32; border: 1px solid #ffffff38; border-radius: 10px; box-shadow: 0 4px 0 #ffffff1c, 0 10px 30px #000a; }
 </style>
 </head>
 <body>
@@ -221,19 +243,28 @@ function stateIcon(state, t) {
   return I.moon;
 }
 
+const UK = { needs: "Чекає на тебе", unread: "Нове", working: "В роботі", fresh: "Без задачі", done: "Готово", inactive: "Сплять" };
+
 function entryHTML(e, w, t, keyIndex) {
   if (e.kind === "header") {
-    const s = e.section;
-    return `<div class="hdr ${e.first ? "first" : ""}"><span class="pill" style="color:${s.color};background:${s.color}26">${I[s.icon]}${s.label}<span class="n">${e.count}</span></span><span class="chev">${I.chev(s.id !== "inactive")}</span></div>`;
+    const s = e.section, drop = w.dropOn === s.id, pulse = w.pulse?.id === s.id ? Math.sin(w.pulse.p * Math.PI) : 0;
+    return `<div class="hdr ${e.first ? "first" : ""}" style="${drop ? "background:#ffffff14;border-radius:8px" : ""}"><span class="pill" style="color:${s.color};background:${s.color}${drop ? "45" : "26"};transform:scale(${1 + 0.12 * pulse})">${I[s.icon]}${w.lang === "uk" ? UK[s.id] : s.label}<span class="n">${e.count}</span></span><span class="chev">${I.chev(s.id !== "inactive")}</span></div>`;
   }
   if (e.kind === "tab") {
     const tb = e.tab;
     return `<div class="tab" style="${tb.state === "unread" ? "background:#4C9EEB1c" : ""}"><span class="bar"></span><span class="t" style="${tb.state === "unread" ? "font-weight:600;color:var(--ink)" : ""}">${tb.title}</span><span class="ago">${ago(tb.ago)}</span><span class="ico16">${stateIcon(tb.state, t)}</span></div>`;
   }
   const r = e.row, sel = w.selected === e.id;
+  if (w.confirm === e.id) {
+    return `<div class="row" style="background:#FF453A26"><div class="line"><span class="t">${r.title}</span><span class="closeq">Close?</span></div></div>`;
+  }
+  if (w.hover === e.id) {
+    return `<div class="row" style="background:${sel ? "#7f7f7f3d" : "#7f7f7f24"}"><div class="line"><span class="t">${r.title}</span><span class="xbtn" style="${w.hoverX ? "background:#7f7f7f4a" : ""}"><svg viewBox="0 0 24 24" width="9" height="9"><path d="M5 5l14 14M19 5 5 19" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></svg></span></div></div>`;
+  }
   const bg = sel ? "#7f7f7f3d" : r.state === "unread" ? "#4C9EEB24" : "transparent";
   const agoColor = r.state === "needs" ? C.ORANGE : r.state === "unread" ? C.BLUE : "var(--ink2)";
-  const label = r.progress ? r.progress[0] + "/" + r.progress[1] : ago(r.ago);
+  let label = r.progress ? r.progress[0] + "/" + r.progress[1] : r.agoText ?? ago(r.ago);
+  if (r.flash) label = `<span style="background:rgba(91,140,255,${0.4 * r.flash});color:#fff;border-radius:4px;padding:0 3px">${label}</span>`;
   let segs = "";
   if (r.progress) {
     segs = '<div class="segs">';
@@ -282,7 +313,7 @@ function cardPages(w) {
     `<div style="display:flex;align-items:baseline;gap:6px"><span class="big" style="color:${lc}">${lim.pct}%</span><span class="dim">5h</span><span class="dim" style="margin-left:auto">week ${lim.week}%</span></div>${bar(lim.pct / 100, lc)}<div class="dim">at ${lim.at} · ${lim.left}</div>`,
     `<div style="display:flex;align-items:center;gap:6px"><span class="big" style="color:${running ? C.VIOLET : "#fff"}">${mmss(running ? w.focusLeft : 1500)}</span><span class="btn" style="background:${running ? "#FFFFFF26" : C.VIOLET}">${running ? "■ Stop" : "▶ Start"}</span></div>${bar(running ? 1 - w.focusLeft / 1500 : 0, C.VIOLET)}<div class="dim">${running ? "Focus · until 01:12 · " + Math.ceil(w.focusLeft / 60) + "m" : "25 min, no distractions"}</div>`,
     `<div style="display:flex;align-items:center"><span style="font-size:11px;font-weight:600;color:#FFFFFF8C">Today</span><span style="margin-left:auto;font-size:10px;color:${C.ORANGE}">🔥 ${w.today.streak} days</span></div><div class="stats"><div class="stat"><b>${w.today.prompts}</b><span>prompts</span></div><div class="stat"><b>${w.today.hours}</b><span>h in Claude</span></div><div class="stat"><b>${w.today.agents}</b><span>agents</span></div></div>`,
-    `<div style="font-size:11px;font-weight:600;color:#FFFFFF8C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sel ? sel.title : "No session selected"}</div><div class="stats" style="gap:12px"><div class="stat"><b>2.1</b><span>h in project</span></div><div class="stat"><b>18</b><span>prompts</span></div></div>`,
+    `<div style="font-size:11px;font-weight:600;color:#FFFFFF8C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sel ? sel.title : "No session selected"}</div><div class="stats" style="gap:12px"><div class="stat"><b>${sel?.proj?.[0] ?? "2.1"}</b><span>h in project</span></div><div class="stat"><b>${sel?.proj?.[1] ?? 18}</b><span>prompts</span></div></div>`,
   ];
 }
 
@@ -310,6 +341,7 @@ function sidebar(w, t, height, trans, opts = {}) {
     if (trans && !f) el.style.opacity = ease;
     const ki = e.kind === "row" && w.keys > rowsInOrder.indexOf(e.key) ? rowsInOrder.indexOf(e.key) + 1 : null;
     el.innerHTML = entryHTML(e, w, t, ki != null && ki <= 9 ? ki : null);
+    if (w.dragging === e.key) el.style.opacity = 0.35;
     if (trans && f && e.kind === "row" && Math.abs(f.y - e.y) > 1) { el.style.zIndex = 2; el.firstChild.style.boxShadow = `0 ${8 * Math.sin(ease * Math.PI)}px 24px #0008`; }
     list.appendChild(el);
   }
@@ -354,11 +386,11 @@ function terminal(w, t, scene) {
   const el = document.createElement("div");
   el.className = "term";
   const sel = w.rows[w.selected];
-  const tabs = sel.tabs ? sel.tabs.map((x) => x.title) : [sel.title];
-  el.innerHTML = `<div class="tabs">${tabs.map((n, i) => `<div class="ttab ${i === 0 ? "on" : ""}"><span class="claude">✳</span>${n}</div>`).join("")}</div>`;
+  const tabs = w.termTabs ?? (sel.tabs ? sel.tabs.map((x) => x.title) : [sel.title]).map((title, i) => ({ title, on: i === 0 }));
+  el.innerHTML = `<div class="tabs">${tabs.map((tb) => `<div class="ttab ${tb.on ? "on" : ""}" style="opacity:${tb.in ?? 1}">${tb.icon ?? '<span class="claude">✳</span>'}<span style="overflow:hidden;text-overflow:ellipsis">${tb.title}</span></div>`).join("")}${w.tabButtons ? tabButtons(w.btnHover) : ""}</div>`;
   const body = document.createElement("div");
   body.className = "tbody";
-  body.innerHTML = TERM[scene.term ?? w.selected] ?? TERM.mono;
+  body.innerHTML = w.termBody ?? TERM[scene.term ?? w.selected] ?? TERM.mono;
   el.appendChild(body);
   const typed = w.typed ?? "";
   el.insertAdjacentHTML("beforeend", `<div class="prompt"><span class="dim" style="font:inherit">❯</span> ${typed}<span class="caret" style="opacity:${Math.floor(t * 2) % 2 ? 0 : 1}"></span></div>
@@ -447,6 +479,388 @@ function worldAt(t, trim) {
   if (t >= 21.8 && t < 24.4) w.keys = Math.floor((t - 21.8) / 0.12);
   if (t >= 24.4) w.mood = "idle";
   return { w, trans };
+}
+
+// --- feature loops ------------------------------------------------------------------
+// One short loop per README feature (?mode=feat&name=…), 480×360, the feature large.
+// Each draw(t) builds a world, a camera region, and pointer/menu overlays.
+const FW = 480, FH = 360;
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const only = (ids) => { const w = baseWorld(); w.selected = null; return trimmed(w, w.order.filter((id) => !ids.includes(id))); };
+
+// Apply time-sorted [at, mutate, dur] steps; returns the transition in flight, if any.
+function steps(t, w, list) {
+  let trans = null;
+  for (const [at, mutate, dur = 0.6] of list) {
+    if (t < at) break;
+    const before = clone(w);
+    mutate(w);
+    if (t < at + dur) trans = { from: before, p: (t - at) / dur };
+  }
+  return trans;
+}
+
+// Piecewise eased path through [t, x, y] keys.
+function track(t, keys) {
+  if (t <= keys[0][0]) return { x: keys[0][1], y: keys[0][2] };
+  for (let i = 1; i < keys.length; i += 1) {
+    const [t1, x1, y1] = keys[i], [t0, x0, y0] = keys[i - 1];
+    if (t <= t1) { const p = easeInOut(span(t, t0, t1)); return { x: x0 + (x1 - x0) * p, y: y0 + (y1 - y0) * p }; }
+  }
+  const k = keys[keys.length - 1];
+  return { x: k[1], y: k[2] };
+}
+
+// Fit region r (in el's own coordinates) into the stage.
+function shoot(el, r) {
+  const s = Math.min(FW / r.w, FH / r.h);
+  el.style.position = "absolute"; el.style.transformOrigin = "0 0";
+  el.style.transform = `translate(${(FW - r.w * s) / 2 - r.x * s}px, ${(FH - r.h * s) / 2 - r.y * s}px) scale(${s})`;
+  stage.appendChild(el);
+}
+
+function pointer(parent, p, clicks = []) {
+  for (const c of clicks) {
+    const k = span(p.t, c, c + 0.45);
+    if (k <= 0 || k >= 1) continue;
+    const r = 6 + 16 * easeOut(k);
+    parent.insertAdjacentHTML("beforeend", `<div class="ripple" style="left:${p.x - r}px;top:${p.y - r}px;width:${2 * r}px;height:${2 * r}px;opacity:${1 - k}"></div>`);
+  }
+  parent.insertAdjacentHTML("beforeend", `<svg class="cursor" style="left:${p.x - 2}px;top:${p.y - 1}px" width="18" height="22" viewBox="0 0 20 24"><path d="M2 1.5v18.2l4.6-4.4 3 6.9 3.1-1.3-3-6.8h6.4z" fill="#000" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>`);
+}
+
+function menu(parent, items, x, y, width, hi) {
+  const html = items.map((it, i) => {
+    if (it === "-") return '<div class="msep"></div>';
+    const o = typeof it === "string" ? { label: it } : it;
+    return `<div class="mi ${i === hi ? "on" : ""} ${o.red ? "red" : ""}">${o.label}${o.sub ? '<span class="arr">›</span>' : ""}</div>`;
+  }).join("");
+  parent.insertAdjacentHTML("beforeend", `<div class="menu" style="left:${x}px;top:${y}px;width:${width}px">${html}</div>`);
+}
+
+const note = (text, a = 1) => { if (a > 0) stage.insertAdjacentHTML("beforeend", `<div class="note" style="opacity:${a}"><span>${text}</span></div>`); };
+const noteA = (t, a, b) => span(t, a, a + 0.3) * (1 - span(t, b - 0.3, b));
+function bigKeys(keys, t, at) {
+  const a = span(t, at - 0.3, at) * (1 - span(t, at + 0.9, at + 1.2));
+  if (a <= 0) return;
+  const press = Math.sin(span(t, at, at + 0.25) * Math.PI);
+  stage.insertAdjacentHTML("beforeend", `<div class="bigkeys" style="right:22px;top:22px;opacity:${a};transform:translateY(${press * 3}px)">${keys.map((k) => `<b>${k}</b>`).join("")}</div>`);
+}
+
+function featWin(w, t, trans, wd = 620, ht = 420) {
+  const win = document.createElement("div");
+  win.className = "win";
+  win.style.width = wd + "px"; win.style.height = ht + "px";
+  win.appendChild(sidebar(w, t, ht, trans));
+  win.appendChild(terminal(w, t, {}));
+  return win;
+}
+
+function tabButtons(hover) {
+  const ico = [
+    '<span class="claude" style="font-size:15px">✳</span>',
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="7" r="2.2"/><path d="M6 7.2v9.6M18 9.2c0 5-12 3-12 7.6"/></svg>',
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>',
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 4v16"/></svg>',
+  ];
+  return `<div class="tbtns">${ico.map((s, i) => `<span class="tbtn" style="${i === hover ? "background:#ffffff1f;color:#fff" : ""}">${s}</span>`).join("")}</div>`;
+}
+
+const WELCOME = (cwd, extra = "") => `${extra}<div class="box" style="border-color:#D9775799;display:inline-block"><span class="acc">✻</span> Welcome to <b>Claude Code</b>!
+
+  <span class="dim">/help for help</span>
+
+  <span class="dim">cwd: ${cwd}</span></div>`;
+
+// Terminal text for the narrow feature windows (~40 columns).
+const SHORT = {
+  dl: `<span class="usr">&gt; the hero looks off on mobile,
+  here's a screenshot</span>
+
+<span class="acc">⏺</span> Send it over, I'll take a look.
+`,
+  ios: `<span class="usr">&gt; add a lock screen widget</span>
+
+<span class="acc">⏺</span> <b>Write</b>(Widget/LockScreen.swift)
+`,
+};
+
+const rowY = (w, id) => 36 + layout(w).entries.find((e) => e.key === id).y;
+const cardY = (h) => h - 30 - H.CARD + 6;
+const SB_REGION = (y = 0) => ({ x: -54, y, w: 360, h: 270 });
+
+const FEATS = {
+  sections: { dur: 5.4, draw(t) {
+    const w = only(["pay", "copy", "mono", "notes", "dash"]);
+    delete w.rows.mono.progress;
+    const trans = steps(t, w, [
+      [1.2, (w) => { w.rows.pay.state = "needs"; w.rows.pay.ago = 0; }, 0.7],
+      [3.0, (w) => { w.rows.mono.state = "unread"; w.rows.mono.ago = 0; }, 0.7],
+    ]);
+    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
+    note("Asks for permission → Needs you", noteA(t, 1.2, 2.9));
+    note("Done, not read yet → New", noteA(t, 3.0, 5.0));
+  } },
+
+  ago: { dur: 5, draw(t) {
+    const w = only(["pay", "copy", "mono", "notes", "dash"]);
+    delete w.rows.mono.progress;
+    ["copy", "pay", "mono", "notes", "dash"].forEach((id, i) => {
+      const at = 1.8 + i * 0.22;
+      if (t < at) w.rows[id].agoText = "22h";
+      else w.rows[id].flash = 1 - span(t, at, at + 0.7);
+    });
+    shoot(sidebar(w, t, 560, null, { solo: true }), SB_REGION());
+    note("After a cmux restart…", noteA(t, 0.2, 1.8));
+    note("…real times, from Claude's transcripts", noteA(t, 2.1, 4.7));
+  } },
+
+  background: { dur: 6.2, draw(t) {
+    const w = only(["pay", "copy", "notes", "dash"]);
+    w.selected = "pay";
+    const trans = steps(t, w, [[4.6, (w) => { w.rows.pay.state = "unread"; w.rows.pay.ago = 0; }, 0.7]]);
+    let body = `<span class="usr">&gt; run the tests, fix what fails</span>
+
+<span class="acc">⏺</span> <b>Bash</b>(pnpm test)
+  <span class="dim">… running in background</span>
+
+<span class="acc">⏺</span> I'll pick up the results
+  when it finishes.
+`;
+    if (t >= 3.0) body += `
+<span class="acc">⏺</span> Done: <span class="grn">214 passed</span>, 2 failed
+<span class="acc">⏺</span> <b>Update</b>(cart.test.ts)
+`;
+    if (t >= 4.4) body += `
+<span class="acc">⏺</span> Fixed both. All 216 pass.
+`;
+    w.termBody = body;
+    shoot(featWin(w, t, trans), { x: 0, y: 0, w: 560, h: 420 });
+    note("Claude's turn ended, the job still runs → Working", noteA(t, 0.4, 2.9));
+    note("Finished → New", noteA(t, 4.6, 6.0));
+  } },
+
+  progress: { dur: 5, draw(t) {
+    const w = only(["pay", "copy", "mono", "notes"]);
+    w.rows.mono.progress = [Math.min(16, 9 + Math.floor(span(t, 0.5, 2.3) * 7.99)), 16];
+    const trans = steps(t, w, [[2.8, (w) => { delete w.rows.mono.progress; w.rows.mono.state = "unread"; w.rows.mono.ago = 0; }, 0.7]]);
+    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
+    note("16 background agents, live", noteA(t, 0.3, 2.8));
+  } },
+
+  tabs: { dur: 5, draw(t) {
+    const w = only(["ios", "copy", "notes", "dash"]);
+    const tabs = w.rows.ios.tabs;
+    tabs[1].state = "working";
+    delete w.rows.ios.tabs;
+    const trans = steps(t, w, [
+      [1.0, (w) => { w.rows.ios.tabs = clone(tabs); }, 0.6],
+      [2.8, (w) => { w.rows.ios.tabs[1].state = "unread"; w.rows.ios.tabs[1].ago = 0; }, 0.3],
+    ]);
+    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
+    note("A second tab opens: each one gets its own state", noteA(t, 1.0, 4.8));
+  } },
+
+  sleep: { dur: 5.6, draw(t) {
+    const w = only(["pay", "docs", "notes", "dash"]);
+    const y0 = rowY(w, "docs") + 15, yDrop = 36 + 202 + 25;
+    const p = track(t, [[0.2, 210, 330], [0.9, 120, y0], [1.2, 120, y0], [2.6, 120, yDrop], [2.9, 120, yDrop], [3.6, 220, 330]]);
+    p.t = t;
+    const dragging = t >= 1.2 && t < 2.9;
+    if (dragging) { w.dragging = "docs"; if (p.y > 236) w.dropOn = "inactive"; }
+    const trans = steps(t, w, [[2.9, (w) => { delete w.rows.docs; w.order = w.order.filter((x) => x !== "docs"); w.sleeping += 1; }, 0.5]]);
+    if (t >= 2.9 && t < 3.4) w.pulse = { id: "inactive", p: span(t, 2.9, 3.4) };
+    const sb = sidebar(w, t, 560, trans, { solo: true });
+    if (dragging) {
+      const ghost = document.createElement("div");
+      ghost.className = "entry";
+      ghost.style.cssText = `left:8px;right:8px;top:${p.y - 15}px;z-index:10;opacity:.92;filter:drop-shadow(0 8px 18px #000c)`;
+      ghost.innerHTML = entryHTML({ kind: "row", key: "docs", id: "docs", row: w.rows.docs }, { ...w, selected: null }, t);
+      ghost.firstChild.style.background = "#2c2c31";
+      sb.appendChild(ghost);
+    }
+    pointer(sb, p);
+    shoot(sb, SB_REGION(60));
+    note("Drag a row into Sleeping to park it", noteA(t, 0.2, 1.2) + noteA(t, 3.2, 5.3));
+  } },
+
+  close: { dur: 5, draw(t) {
+    const w = only(["pay", "copy", "notes", "dash", "triage"]);
+    const y = rowY(w, "triage") + 15;
+    const p = track(t, [[0.2, 200, 340], [0.9, 150, y], [1.2, 226, y], [2.6, 226, y], [3.3, 210, 345]]);
+    p.t = t;
+    if (t >= 0.9 && t < 1.6) { w.hover = "triage"; w.hoverX = t >= 1.15; }
+    if (t >= 1.6 && t < 2.6) w.confirm = "triage";
+    const trans = steps(t, w, [[2.6, (w) => { delete w.rows.triage; w.order = w.order.filter((x) => x !== "triage"); }, 0.45]]);
+    const sb = sidebar(w, t, 560, trans, { solo: true });
+    pointer(sb, p, [1.55, 2.55]);
+    shoot(sb, SB_REGION(100));
+    note("× asks first, a second click closes", noteA(t, 0.5, 4.7));
+  } },
+
+  limit: { dur: 5, draw(t) {
+    const w = only(["pay", "copy", "notes"]);
+    const pct = t < 2.6 ? Math.round(42 * easeOut(span(t, 0.3, 1.6))) : 42 + Math.round(34 * easeInOut(span(t, 2.6, 3.8)));
+    w.limit = { ...w.limit, pct, left: t < 2.6 ? "2h 14m" : "1h 32m" };
+    shoot(sidebar(w, t, 320, null, { solo: true }), { x: -24, y: 110, w: 300, h: 225 });
+  } },
+
+  focus: { dur: 5.5, draw(t) {
+    const w = only(["pay", "copy", "notes"]);
+    w.page = w.prevPage = 1; w.pageP = 1;
+    if (t >= 1.25) w.focusLeft = 1500 - Math.floor((t - 1.25) * 140);
+    const sb = sidebar(w, t, 320, null, { solo: true });
+    const by = cardY(320) + 30;
+    const p = track(t, [[0.1, 150, 330], [1.0, 203, by], [1.6, 203, by], [2.3, 245, 335]]);
+    p.t = t;
+    pointer(sb, p, [1.2]);
+    shoot(sb, { x: -24, y: 110, w: 300, h: 225 });
+  } },
+
+  today: { dur: 4.6, draw(t) {
+    const w = only(["pay", "copy", "notes"]);
+    const flip = span(t, 0.9, 1.25);
+    w.page = t >= 0.9 ? 2 : 0; w.prevPage = 0; w.pageP = t >= 0.9 ? easeOut(flip) : 1;
+    const k = easeOut(span(t, 1.1, 2.6));
+    w.today = { prompts: Math.round(47 * k), hours: (5.3 * k).toFixed(1), agents: Math.round(12 * k), streak: 6 };
+    const sb = sidebar(w, t, 320, null, { solo: true });
+    const dy = cardY(320) + 82;
+    const p = track(t, [[0.1, 200, 330], [0.75, 131, dy], [1.1, 131, dy], [1.8, 250, 335]]);
+    p.t = t;
+    pointer(sb, p, [0.85]);
+    shoot(sb, { x: -24, y: 110, w: 300, h: 225 });
+  } },
+
+  project: { dur: 5.2, draw(t) {
+    const w = only(["copy", "pay", "mono", "notes"]);
+    delete w.rows.mono.progress;
+    w.rows.mono.proj = ["2.1", 18]; w.rows.notes.proj = ["0.6", 7];
+    w.selected = t >= 1.7 ? "notes" : "mono";
+    w.page = w.prevPage = 3; w.pageP = 1;
+    const sb = sidebar(w, t, 420, null, { solo: true });
+    const ny = rowY(w, "notes") + 15;
+    const p = track(t, [[0.2, 210, 400], [1.3, 120, ny], [1.8, 120, ny], [2.6, 236, 330]]);
+    p.t = t;
+    pointer(sb, p, [1.65]);
+    shoot(sb, SB_REGION(125));
+    note("This project: time and prompts here", noteA(t, 2.0, 4.9));
+  } },
+
+  download: { dur: 5.6, draw(t) {
+    const w = only(["copy", "pay", "notes"]);
+    w.selected = "copy";
+    w.termBody = SHORT.dl;
+    if (t >= 0.5 && t < 2.9) w.download = { name: "IMG_2041.png", ago: "now", in: easeOut(span(t, 0.5, 1.0)), press: t > 2.1 ? Math.sin(span(t, 2.1, 2.5) * Math.PI) : 0, out: t > 2.5 ? span(t, 2.5, 2.9) : null };
+    if (t >= 2.5) w.typed = "~/Downloads/IMG_2041.png ";
+    const win = featWin(w, t, null, 620, 480);
+    const cy = cardY(480) - H.DL + 17;
+    const p = track(t, [[0.2, 360, 260], [1.8, 216, cy], [2.3, 216, cy], [3.1, 330, 290]]);
+    p.t = t;
+    pointer(win, p, [2.15]);
+    shoot(win, { x: 0, y: 120, w: 480, h: 360 });
+    note("AirDrop a screenshot → paste it into Claude", noteA(t, 0.6, 5.3));
+  } },
+
+  cmdn: { dur: 5, draw(t) {
+    const w = only(["copy", "pay", "notes"]);
+    w.selected = "copy";
+    w.termBody = SHORT.dl;
+    const trans = steps(t, w, [[1.4, (w) => {
+      w.rows.fresh = { title: "New session", state: "fresh", ago: 0 };
+      w.order.push("fresh"); w.selected = "fresh";
+      w.termBody = WELCOME("~/code/side-project");
+    }, 0.6]]);
+    shoot(featWin(w, t, trans, 620, 540), { x: 0, y: 0, w: 560, h: 420 });
+    bigKeys(["⌘", "N"], t, 1.2);
+    note("⌘N opens Claude, not a bare shell", noteA(t, 1.7, 4.8));
+  } },
+
+  openhere: { dur: 6.2, draw(t) {
+    const w = only(["ios", "copy", "notes"]);
+    delete w.rows.ios.tabs;
+    w.selected = "ios";
+    w.termBody = SHORT.ios;
+    const ry = rowY(w, "ios") + 15;
+    const opened = t >= 2.9;
+    if (opened) {
+      w.termTabs = [{ title: "iOS widget", on: false }, { title: "Claude", on: true, in: easeOut(span(t, 2.9, 3.2)) }];
+      w.termBody = WELCOME("~/code/ios-widget/.claude/worktrees/calm-otter", `<span class="dim">$</span> claude -w\n`);
+    }
+    const win = featWin(w, t, null);
+    const p = track(t, [[0.1, 330, 330], [0.8, 110, ry], [1.0, 110, ry], [1.4, 150, ry + 18], [2.0, 300, ry + 13], [2.5, 300, ry + 13], [3.4, 420, 300]]);
+    p.t = t;
+    if (t >= 0.9 && !opened) {
+      menu(win, [{ label: "Open here", sub: true }, "-", "Put to sleep", "Rename", "Pin", "Mark as Read", "-", { label: "Close Others", red: true }, { label: "Close", red: true }],
+        112, ry + 2, 170, t >= 1.3 ? 0 : -1);
+      if (t >= 1.4) menu(win, ["Claude on its own branch (worktree)", "Another Claude", "-", "Preview localhost:3000 in the Dock", "iOS Simulator"],
+        278, ry - 3, 250, t >= 1.9 ? 0 : -1);
+    }
+    pointer(win, p, [0.95, 2.85]);
+    shoot(win, { x: 0, y: 0, w: 560, h: 420 });
+    note("Right-click → Open here", noteA(t, 0.5, 5.9));
+  } },
+
+  tabstrip: { dur: 6.4, draw(t) {
+    const w = only(["e2e", "copy", "notes"]);
+    w.selected = "e2e";
+    w.tabButtons = true;
+    w.termTabs = [{ title: "Fix flaky e2e", on: true }];
+    w.termBody = `<span class="usr">&gt; find why checkout.spec flakes on CI</span>\n\n<span class="acc">⏺</span> <b>Read</b>(tests/checkout.spec.ts)\n`;
+    if (t >= 1.6) {
+      w.termTabs = [{ title: "Fix flaky e2e", on: false }, { title: "Claude", on: true, in: easeOut(span(t, 1.6, 1.9)) }];
+      w.termBody = WELCOME("~/code/shop");
+    }
+    if (t >= 3.6) {
+      w.termTabs[1].on = false;
+      w.termTabs.push({ title: "Claude", on: true, in: easeOut(span(t, 3.6, 3.9)), icon: `<span class="claude" style="width:13px;height:13px;display:inline-block">${tabButtons().match(/<svg.*?<\/svg>/g)[0]}</span>` });
+      w.termBody = WELCOME("~/code/shop/.claude/worktrees/bright-fox", `<span class="dim">Created worktree on branch</span> worktree-bright-fox\n\n`);
+    }
+    const bx = (i) => 252 + 368 - 10 - 110 + 13 + i * 28;
+    const p = track(t, [[0.1, 470, 230], [0.9, bx(0), 17], [1.7, bx(0), 17], [2.6, bx(1), 17], [3.7, bx(1), 17], [4.4, 520, 200]]);
+    p.t = t;
+    w.btnHover = t >= 0.9 && t < 1.7 ? 0 : t >= 2.6 && t < 3.7 ? 1 : -1;
+    const win = featWin(w, t, null);
+    if (t >= 1.0 && t < 1.55) win.insertAdjacentHTML("beforeend", `<div class="tip" style="left:${bx(0) - 30}px;top:38px">Claude</div>`);
+    if (t >= 2.7 && t < 3.55) win.insertAdjacentHTML("beforeend", `<div class="tip" style="left:${bx(1) - 150}px;top:38px">Claude on a new branch</div>`);
+    pointer(win, p, [1.55, 3.55]);
+    shoot(win, { x: 252, y: 0, w: 368, h: 276 });
+  } },
+
+  keys: { dur: 5.6, draw(t) {
+    const w = only(["pay", "copy", "mono", "ios", "notes", "dash"]);
+    delete w.rows.mono.progress; delete w.rows.ios.tabs;
+    w.keys = Math.floor(span(t, 0.3, 1.2) * 9.99);
+    w.selected = t >= 1.9 ? "pay" : "copy";
+    const trans = steps(t, w, [[3.3, (w) => { w.rows.pay.state = "needs"; w.rows.pay.ago = 0; }, 0.7]]);
+    if (t >= 1.9) w.selected = "pay";
+    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
+    bigKeys(["⌘", "3"], t, 1.9);
+    note("The numbers follow the rows", noteA(t, 3.3, 5.3));
+  } },
+
+  lang: { dur: 5, draw(t) {
+    const w = only(["pay", "copy", "mono", "notes", "dash"]);
+    delete w.rows.mono.progress;
+    if (t >= 1.9) w.lang = "uk";
+    const sb = sidebar(w, t, 560, null, { solo: true });
+    const p = track(t, [[0.1, 200, 300], [0.8, 60, 52], [1.0, 60, 52], [1.6, 90, 73], [2.0, 90, 73], [2.7, 220, 300]]);
+    p.t = t;
+    if (t >= 0.9 && t < 1.9) menu(sb, ["Українська", "English"], 62, 54, 130, t >= 1.45 ? 0 : -1);
+    pointer(sb, p, [0.95, 1.85]);
+    shoot(sb, SB_REGION());
+    note("Right-click a header: English or Українська", noteA(t, 0.4, 4.7));
+  } },
+};
+
+function renderFeat(t) {
+  const f = FEATS[params.get("name")] ?? FEATS.sections;
+  sizeStage(FW, FH);
+  stage.className = "flat";
+  stage.innerHTML = "";
+  f.draw(t);
+  // Fade through the background so the loop restarts cleanly.
+  const fade = Math.max(1 - span(t, 0, 0.25), span(t, f.dur - 0.35, f.dur));
+  if (fade > 0) stage.insertAdjacentHTML("beforeend", `<div style="position:absolute;inset:0;z-index:50;background:#0e0f14;opacity:${fade}"></div>`);
 }
 
 // --- modes --------------------------------------------------------------------------
@@ -644,9 +1058,12 @@ function renderPoster() {
 window.seek = (t) => {
   if (MODE === "video") renderVideo(t);
   else if (MODE === "octo") renderOcto(t);
+  else if (MODE === "feat") renderFeat(t);
 };
-window.DURATION = DURATION;
+window.DURATION = MODE === "feat" ? (FEATS[params.get("name")] ?? FEATS.sections).dur : DURATION;
+window.FEATS = Object.keys(FEATS);
 if (MODE === "video") renderVideo(Number(params.get("t") ?? 6));
+else if (MODE === "feat") renderFeat(Number(params.get("t") ?? 2));
 else if (MODE === "hero") renderHero();
 else if (MODE === "window") renderWindow();
 else if (MODE === "cards") renderCards();
