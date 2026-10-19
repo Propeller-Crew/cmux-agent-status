@@ -48,6 +48,7 @@ func runSync(_ args: [String]) {
 }
 
 var downloadsStamp: Date?
+var recheckDownloads = 0
 var reportedDownload: String?
 var reported: Int?
 var pending: (height: Int, since: Date)?
@@ -66,12 +67,19 @@ while true {
     }
     // Downloads: only the folder's modification date is read each pass; the listing
     // happens when something arrived.
+    // A screenshot appears as a hidden temp file first and is renamed a moment later,
+    // so after any change look again on the next few passes.
     let stamp = (try? downloads.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     if stamp != downloadsStamp {
         downloadsStamp = stamp
+        recheckDownloads = 5
+    }
+    if recheckDownloads > 0 {
+        recheckDownloads -= 1
         if let newest = newestDownload(), newest.path != reportedDownload {
             runSync(["--download", String(Int(newest.added.timeIntervalSince1970)), newest.path])
             reportedDownload = newest.path
+            FileHandle.standardError.write("download: \(newest.path)\n".data(using: .utf8)!)
         }
     }
     Thread.sleep(forTimeInterval: Date().timeIntervalSince(lastChange) < 3 ? 0.2 : 1.0)

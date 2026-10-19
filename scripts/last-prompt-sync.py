@@ -49,6 +49,9 @@ CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|lang:(uk|en))$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
+# What the watcher reported (window height, newest download). Kept apart from the cache:
+# the full run reads it but never writes it, so a report landing mid-run isn't overwritten.
+WATCH_STATE = os.path.expanduser("~/.config/cmux/watch-state.json")
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects/*/*.jsonl")
 IDLE_GAP = 300   # seconds between transcript entries still counted as time in the session
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
@@ -263,8 +266,22 @@ def carried(ours, prefix):
                  if p.startswith(prefix)), None)
 
 
+def read_watch_state():
+    try:
+        with open(WATCH_STATE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def set_owner_token(prefix, value):
-    """Fast path for the watcher: swap one account-wide token on the owner workspace."""
+    """Fast path for the watcher: remember the value, then swap that one token on the owner workspace."""
+    state = read_watch_state()
+    state[prefix] = value
+    tmp = WATCH_STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, WATCH_STATE)
     ours = our_workspaces()
     if not ours:
         return
@@ -347,9 +364,10 @@ def main():
     # Remembered in the cache too: these ride on one workspace, and closing it loses them.
     lang = carried(ours, "lang:") or cache.get("_lang")
     cache["_lang"] = lang
-    win = carried(ours, "win:")
+    watched = read_watch_state()
+    win = "win:" + watched["win:"] if "win:" in watched else carried(ours, "win:")
+    download = "dl:" + watched["dl:"] if "dl:" in watched else carried(ours, "dl:")
     focus = carried(ours, "focus:")
-    download = carried(ours, "dl:")
 
     # "new": a workspace this script has never seen before and that has no prompt yet,
     # i.e. one you just opened. A restored session can also lack a readable prompt

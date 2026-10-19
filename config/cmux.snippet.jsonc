@@ -22,7 +22,7 @@
   "commands": [{
     "name": "Claude workspace",
     "description": "New workspace with Claude running",
-    "workspace": { "cwd": ".", "layout": { "pane": { "surfaces": [{ "type": "terminal", "command": "claude" }] } } }
+    "workspace": { "name": "New session", "cwd": ".", "layout": { "pane": { "surfaces": [{ "type": "terminal", "command": "claude" }] } } }
   }],
   "ui": {
     "newWorkspace": {

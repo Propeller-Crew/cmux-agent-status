@@ -36,8 +36,8 @@ const STRINGS = {
     markRead: "Mark as Read", markUnread: "Mark as Unread", closeOthers: "Close Others", close: "Close",
     wsName: "Workspace name", limit: "5-hour limit", limitShort: "5h", week: "week",
     today: "Today", prompts: "prompts", inClaude: "in Claude", agents: "agents",
-    streak: (n) => n + (n === 1 ? " day" : " days"), sessionTime: "in this project", noSession: "No session selected",
-    minShort: "m", hourShort: "h",
+    streak: (n) => n + (n === 1 ? " day" : " days"), sessionTime: "in project", noSession: "No session selected",
+    minUnit: "min", hourUnit: "h",
     focus: "Focus", start: "Start", stop: "Stop", focusIdle: "25 min, no distractions",
     paste: "Paste", hide: "Hide",
     focusDone: "Focus done", focusDoneBody: "25 minutes behind you. Take five?",
@@ -53,7 +53,7 @@ const STRINGS = {
     closeOthers: "Закрити інші", close: "Закрити", wsName: "Назва", limit: "Ліміт на 5 год", limitShort: "5 год", week: "тиждень",
     today: "Сьогодні", prompts: "промптів", inClaude: "у Claude", agents: "агентів",
     streak: (n) => n + " " + (n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дні" : "днів"),
-    sessionTime: "у цьому проєкті", noSession: "Сесію не вибрано", minShort: " хв", hourShort: " год",
+    sessionTime: "у проєкті", noSession: "Сесію не вибрано", minUnit: "хв", hourUnit: "год",
     focus: "Фокус", start: "Старт", stop: "Стоп", focusIdle: "25 хв без відволікань",
     paste: "Вставити", hide: "Сховати",
     focusDone: "Фокус завершено", focusDoneBody: "25 хвилин позаду. Перерва на п'ять?",
@@ -208,6 +208,9 @@ function agentState(w) {
   // A workspace you just opened, no prompt yet ("new" from the sync job): every
   // session starts here, and without this it would vanish into folded Sleeping.
   if (!last && /(^| · )new( · |$)/.test(w.description ?? "")) return { kind: "fresh", since: null };
+  // Before the sync job has seen it: no history at all and a Claude started minutes ago.
+  const startedAt = Math.max(0, ...agents.map((a) => secs(a.sinceEpoch ?? a.lastActivityAt) ?? 0));
+  if (!last && !w.description && startedAt && nowSecs() - startedAt < 600) return { kind: "fresh", since: null };
   if (!last || nowSecs() - last > INACTIVE_AFTER) return { kind: "inactive", since: last };
   return { kind: "done", since: last };
 }
@@ -338,11 +341,13 @@ function sessionStats() {
 }
 
 const limitColor = (pct) => (pct >= 90 ? RED : pct >= 70 ? ORANGE : GREEN);
-const hoursText = (min) => {
-  if (min < 60) return min + t("minShort");
+// Time as a bare number plus its unit, so the unit can sit in the small label and
+// three stats fit side by side: "7,2" over "год у Claude".
+function timeStat(min) {
+  if (min < 60) return { value: String(min), unit: t("minUnit") };
   const h = Math.round(min / 6) / 10;
-  return String(h).replace(".", lang() === "uk" ? "," : ".") + t("hourShort");
-};
+  return { value: String(h).replace(".", lang() === "uk" ? "," : "."), unit: t("hourUnit") };
+}
 
 const OCTO_PALETTE = {"k": "#10121C", "c": "#398FE2", "C": "#70B6F6", "b": "#1C529C", "p": "#2468B8", "r": "#FF8A7A", "R": "#FFBAAA", "s": "#E26660", "e": "#10121C", "w": "#FFFFFF", "h": "#FF6274", "m": "#8C243A", "y": "#FFD45C"};
 const OCTO_FRAMES = {
@@ -382,7 +387,9 @@ function octoMood() {
   return nowSecs() - last < 1800 ? "idle" : "sleep";
 }
 
-const PIXEL = 2.75;
+// 2.5 pt = exactly 5 screen pixels on Retina; a fractional pixel (2.75 pt) rounded
+// differently from frame to frame and made the card, and the sidebar, jitter.
+const PIXEL = 2.5;
 function octopus() {
   const pixel = () => {
     const frames = OCTO_FRAMES[octoMood()];
@@ -400,7 +407,7 @@ function octopus() {
     }
     rows.push(HStack({ spacing: 0 }, cells));
   }
-  return VStack({ spacing: 0 }, rows).fixedSize();
+  return VStack({ spacing: 0 }, rows).frame({ width: PIXEL * 16, height: PIXEL * 16 });
 }
 
 // Pages share one slot; the hidden ones collapse to zero height.
@@ -499,11 +506,11 @@ function focusPage() {
 }
 
 function stat(value, label) {
-  return VStack({ spacing: 1 }, [
+  return VStack({ spacing: 1, alignment: "leading" }, [
     Text(value).font(16).weight("bold").color(CARD_TEXT).fixedSize(),
-    // Labels may shorten but never set the width: a fixed-size row here would widen
-    // the whole sidebar over the terminal when the sidebar is narrow.
-    Text(label).font(9).color(CARD_DIM).lineLimit(1).truncation("tail"),
+    // Keep labels short (the unit moved here from the number): a row wider than the
+    // card widens the whole sidebar over the terminal.
+    Text(label).font(9).color(CARD_DIM).fixedSize(),
   ]);
 }
 
@@ -517,10 +524,9 @@ function todayPage() {
     ]),
     HStack({ spacing: 10 }, [
       stat(() => String(d()?.prompts ?? 0), () => t("prompts")),
-      stat(() => hoursText(d()?.minutes ?? 0), () => t("inClaude")),
+      stat(() => timeStat(d()?.minutes ?? 0).value, () => timeStat(d()?.minutes ?? 0).unit + " " + t("inClaude")),
       stat(() => String(d()?.agents ?? 0), () => t("agents")),
-      Spacer({ minLength: 0 }),
-    ]),
+    ]).frame({ maxWidth: "infinity", alignment: "leading" }),
   ]);
 }
 
@@ -529,10 +535,9 @@ function sessionPage() {
   return VStack({ spacing: 5 }, [
     Text(() => st()?.title ?? t("noSession")).font(11).weight("semibold").color(CARD_DIM).lineLimit(1).truncation("tail"),
     HStack({ spacing: 12 }, [
-      stat(() => (st() ? hoursText(st().minutes) : "—"), () => t("sessionTime")),
+      stat(() => (st() ? timeStat(st().minutes).value : "—"), () => (st() ? timeStat(st().minutes).unit + " " : "") + t("sessionTime")),
       stat(() => (st() ? String(st().prompts) : "—"), () => t("prompts")),
-      Spacer({ minLength: 0 }),
-    ]),
+    ]).frame({ maxWidth: "infinity", alignment: "leading" }),
   ]);
 }
 
@@ -849,7 +854,8 @@ const ROW_PROGRESS_H = 37;
 const TAB_H = 22;
 const CARD_H = 108;
 const LIST_SPACING = 2;
-const SIDEBAR_CHROME = 60;   // title bar above the list and the footer buttons below it
+const SIDEBAR_CHROME = 66;   // title bar above the list, the footer buttons below it, and a few points of slack
+                             // so rounding never makes the sidebar scroll (a scroll bar shows on its edge)
 
 function listHeight() {
   const entries = flatEntries();
