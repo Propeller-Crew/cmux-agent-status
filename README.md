@@ -68,7 +68,7 @@ It lives on the card: asleep when nothing happens, spinning its propeller while 
 Needs cmux ≥ 0.65 (custom sidebars beta, on by default) and Python 3 (macOS ships it).
 
 ```sh
-git clone https://github.com/Propeller-Crew/cmux-agent-status ~/code/cmux-agent-status
+git clone https://github.com/sahneo/cmux-agent-status ~/code/cmux-agent-status
 ~/code/cmux-agent-status/install.sh
 ```
 
