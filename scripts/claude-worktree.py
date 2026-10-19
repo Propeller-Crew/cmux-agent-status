@@ -149,6 +149,24 @@ def trust(repo):
     os.replace(tmp, CLAUDE_CONFIG)
 
 
+def ignore_worktrees(repo):
+    """Keeps <repo>/.claude/worktrees/ out of `git status`, locally (.git/info/exclude),
+    without committing anything to the repo."""
+    r = subprocess.run(["git", "-C", repo, "rev-parse", "--git-path", "info/exclude"], capture_output=True, text=True)
+    if r.returncode != 0:
+        return
+    path = os.path.join(repo, r.stdout.strip())
+    try:
+        with open(path) as f:
+            if ".claude/worktrees/" in f.read():
+                return
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as f:
+        f.write("\n.claude/worktrees/\n")
+
+
 def main():
     cwd, home = os.getcwd(), os.path.expanduser("~")
     repo = toplevel(cwd)
@@ -172,6 +190,7 @@ def main():
         if answer.strip().lower() == "n":
             os.execvp("claude", ["claude"])
         trust(repo)
+    ignore_worktrees(repo)
     os.execvp("claude", ["claude", "-w"])
 
 
