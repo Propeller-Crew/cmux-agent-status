@@ -284,7 +284,7 @@ const sectionCount = (id) => visibleWorkspaces().filter((w) => sectionOf(w) === 
 // reacting to the agents, pages on the right (click the card or a dot to flip;
 // cmux sidebars get no swipe gestures). Data comes as tokens from the sync job:
 // "lim:<5h %>/<5h reset>/<week %>/<week reset>", "day:<prompts>/<min>/<agents>/<streak>"
-// on one workspace, and "st:<prompts>/<min>" on each.
+// and "win:<points>" on one workspace, and "st:<prompts>/<min>" on each.
 const LIMIT_SEGMENTS = 16;
 const PAGES = ["limit", "today", "session"];
 const [page, setPage] = signal(0);
@@ -481,7 +481,7 @@ function activityCard() {
     .cornerRadius(20)
     .paddingHorizontal(4)
     .paddingTop(6)
-    .frame({ maxWidth: "infinity" })
+    .frame({ maxWidth: "infinity", height: CARD_H })
     .cursor("pointer")
     .onTap(() => setPage((page() + 1) % PAGES.length))
     .contextMenu(languageMenu());
@@ -572,7 +572,7 @@ function tabRow(entry) {
     .cornerRadius(6)
     .background(() => (isCurrent() ? "#7f7f7f24" : (st().kind === "unread" ? "#4C9EEB1c" : null)))
     .hoverBackground("#7f7f7f1c")
-    .frame({ maxWidth: "infinity" })
+    .frame({ maxWidth: "infinity", height: TAB_H })
     .fixed()
     .onTap(() => {
       selectWorkspace(w()?.id);
@@ -669,7 +669,7 @@ function workspaceRow(w) {
     .cornerRadius(8)
     .background(() => rowBackground(w(), st(), false))
     .hoverBackground(() => rowBackground(w(), st(), true))
-    .frame({ maxWidth: "infinity" })
+    .frame(() => ({ maxWidth: "infinity", height: progressCounts(w()) ? ROW_PROGRESS_H : ROW_H }))
     .onTap(() => selectWorkspace(w().id))
     .onDoubleTap(() => setEditingId(w().id))
     .contextMenu(workspaceMenu(w));
@@ -693,7 +693,7 @@ function workspaceEditRow(w) {
     .paddingVertical(6)
     .cornerRadius(8)
     .background("#7f7f7f3d")
-    .frame({ maxWidth: "infinity" });
+    .frame({ maxWidth: "infinity", height: ROW_H });
 }
 
 function sectionHeader(id) {
@@ -721,7 +721,7 @@ function sectionHeader(id) {
     .paddingTrailing(10)
     .paddingTop(() => (isFirst() ? 4 : 14))
     .paddingBottom(4)
-    .frame({ maxWidth: "infinity" })
+    .frame(() => ({ maxWidth: "infinity", height: isFirst() ? HEADER_FIRST_H : HEADER_H }))
     .fixed()
     .cursor("pointer")
     .onTap(() => toggleSection(id))
@@ -742,6 +742,39 @@ function handleMove(id, index) {
   else if (target !== "inactive" && isAsleep(w)) setAsleep(w, false);
 }
 
+// --- keeping the card at the bottom -------------------------------------------------
+// A cmux sidebar scrolls as one piece and can't pin anything to its bottom, and it
+// doesn't know the window height. The sync job reports that ("win:<points>"), every
+// row has a fixed height, and a spacer fills what's left above the card.
+const HEADER_FIRST_H = 30;
+const HEADER_H = 40;
+const ROW_H = 30;
+const ROW_PROGRESS_H = 37;
+const TAB_H = 22;
+const CARD_H = 104;
+const LIST_SPACING = 2;
+const SIDEBAR_CHROME = 60;   // title bar above the list and the footer buttons below it
+
+function listHeight() {
+  const entries = flatEntries();
+  let h = Math.max(0, entries.length - 1) * LIST_SPACING;
+  entries.forEach((e, i) => {
+    if (e.kind === "header") h += i === 0 ? HEADER_FIRST_H : HEADER_H;
+    else if (e.kind === "tab") h += TAB_H;
+    else {
+      const w = (data.workspaces() ?? []).find((x) => x.id === e.wsId);
+      h += progressCounts(w) ? ROW_PROGRESS_H : ROW_H;
+    }
+  });
+  return h;
+}
+
+function spacerHeight() {
+  const win = Number(globalToken("win:")?.v ?? 0);
+  if (!win) return 12;
+  return Math.max(12, win - SIDEBAR_CHROME - listHeight() - CARD_H - 2 * 2);
+}
+
 // --- root --------------------------------------------------------------------------
 sidebar(() =>
   VStack({ spacing: 2 }, [
@@ -755,7 +788,7 @@ sidebar(() =>
         return entry.editing ? workspaceEditRow(w) : workspaceRow(w);
       }
     ),
-    Spacer({ minLength: 12 }),
+    Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacerHeight() })),
     activityCard(),
   ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),
   { surface: "glass" }

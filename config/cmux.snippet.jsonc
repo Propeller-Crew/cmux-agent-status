@@ -14,7 +14,8 @@
   "surfaceTabBar": { "fontSize": 12.5 },
   "actions": {
     "claude-new-tab": { "type": "agent", "agent": "claude", "title": "Claude", "target": "newTabInCurrentPane", "palette": true },
-    "claude-worktree-tab": { "type": "agent", "agent": "claude", "args": "-w", "title": "Claude on a new branch", "target": "newTabInCurrentPane", "palette": true }
+    // Finds the repo even when the workspace folder isn't one (from the paths its Claude sessions touched).
+    "claude-worktree-tab": { "type": "command", "command": "~/.config/cmux/claude-worktree", "title": "Claude on a new branch", "palette": true }
   },
   "ui": {
     "surfaceTabBar": {

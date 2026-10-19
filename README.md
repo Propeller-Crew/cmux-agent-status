@@ -14,7 +14,7 @@ A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs
   - **This project**: time and prompts in the selected workspace's Claude sessions.
 - **A pixel octopus** in a propeller beanie on that card: asleep when nothing happens, spinning its propeller while agents work, waving when one waits on you, celebrating fresh results.
 - **Right-click → Open here**: Claude on its own git worktree, a second Claude, the local site in the Dock, an iOS simulator.
-- **Tab strip buttons**: a Claude tab and a Claude-on-a-new-branch tab (`claude -w`) for running several fixes in parallel.
+- **Tab strip buttons**: a Claude tab and a Claude-on-a-new-branch tab (`claude -w`) for running several fixes in parallel. If the workspace folder isn't a git repo (a notes vault where Claude edits code elsewhere), the branch button finds the repo from the paths its sessions worked on.
 - **English or Ukrainian**: follows macOS; switch with right-click on the activity card or any section header.
 
 ## Install
@@ -56,7 +56,7 @@ Gotchas found on the way (cmux 0.65.2):
 - `ProgressView()` ignores `.frame` and overflows the row; the spinner is an SF Symbol rotated on the clock tick.
 - `.monospacedDigit()` and `.disabled()` don't exist in the JS runtime, and menu items can't be hidden.
 - cmux reports `backgroundWorkPending` for an idle background server too, and older Claude versions never wrote `finished` into subagent meta files, so neither is trusted on its own.
-- The sidebar scrolls as one piece and doesn't know the window height, so nothing can be pinned to its bottom; Sleeping starts folded to keep the activity card in view.
+- The sidebar scrolls as one piece and doesn't know the window height, so nothing can be pinned to its bottom. A tiny Swift helper (`scripts/window-height.swift`, built by `install.sh`) reports cmux's window height to the sync job, every row has a fixed height, and a spacer pushes the card down. After a window resize it catches up within 15 s. Sleeping starts folded so the list fits.
 - cmux names a workspace after its focused tab; opening a simulator renamed it to "Simulator". The sidebar keeps the Claude tab's name.
 
 ## Licence

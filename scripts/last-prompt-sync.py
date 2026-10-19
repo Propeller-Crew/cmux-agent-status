@@ -14,7 +14,8 @@ For every cmux workspace this writes into its description:
 - " · st:<prompts>/<minutes>": your prompts and time spent in this workspace's
   Claude sessions (pauses over 5 min don't count);
 - on one workspace only, account-wide data: " · day:<prompts>/<minutes>/<agents>/<streak>"
-  for today across every Claude session (streak = days in a row with a prompt), " · lim:<5h %>/<5h reset>/<week %>/<week reset>"
+  for today across every Claude session (streak = days in a row with a prompt),
+  " · win:<points>" (cmux's window height, so the sidebar can keep its card at the bottom), " · lim:<5h %>/<5h reset>/<week %>/<week reset>"
   (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
   line writes) and " · lang:uk|en" (the sidebar's language, set from the sidebar).
 Descriptions that aren't in this format are left alone.
@@ -36,8 +37,9 @@ from datetime import datetime, timedelta
 CMUX = "/Applications/cmux.app/Contents/Resources/bin/cmux"
 CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
-TOKEN = re.compile(r"^(last prompt @\d+|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|lang:(uk|en))$")
-RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
+TOKEN = re.compile(r"^(last prompt @\d+|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|lang:(uk|en))$")
+RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")
+WINDOW_HEIGHT = os.path.expanduser("~/.config/cmux/bin/cmux-window-height")   # built by install.sh   # written by the Claude Code status line
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects/*/*.jsonl")
 IDLE_GAP = 300   # seconds between transcript entries still counted as time in the session
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
@@ -256,6 +258,8 @@ def main():
     while d.strftime("%Y-%m-%d") in active_days:
         streak, d = streak + 1, d - timedelta(days=1)
     day = f"day:{day_prompts}/{round(day_active / 60)}/{day_agents}/{streak}"
+    height = run(WINDOW_HEIGHT).strip() if os.path.exists(WINDOW_HEIGHT) else ""
+    win = f"win:{height}" if height.isdigit() else None
     for path in [p for p in tx if not os.path.exists(p)]:
         tx.pop(path)
 
@@ -296,6 +300,7 @@ def main():
             "st:%d/%d" % (stats[w["id"]][0], round(stats[w["id"]][1] / 60)) if w["id"] in stats else None,
             limit if is_owner else None,
             day if is_owner else None,
+            win if is_owner else None,
             lang if is_owner else None,
         ]))
         if current != wanted:

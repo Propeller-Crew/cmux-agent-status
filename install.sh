@@ -11,7 +11,10 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 mkdir -p "$CMUX_DIR/sidebars" "$HOME/Library/LaunchAgents"
 ln -sf "$REPO/sidebars/agent-status.js" "$CMUX_DIR/sidebars/agent-status.js"
 ln -sf "$REPO/scripts/last-prompt-sync.py" "$CMUX_DIR/last-prompt-sync.py"
-mkdir -p "$CMUX_DIR/icons"
+ln -sf "$REPO/scripts/claude-worktree.py" "$CMUX_DIR/claude-worktree"
+mkdir -p "$CMUX_DIR/icons" "$CMUX_DIR/bin"
+swiftc -O "$REPO/scripts/window-height.swift" -o "$CMUX_DIR/bin/cmux-window-height" \
+  || echo "Window-height helper not built (needs Xcode command line tools); the activity card sits right under the list."
 swift "$REPO/scripts/extract-claude-icon.swift" "$CMUX_DIR/icons/claude.png" \
   || echo "Claude icon not extracted (needs Xcode command line tools); the tab-bar button falls back to text."
 
