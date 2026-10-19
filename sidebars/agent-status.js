@@ -40,7 +40,7 @@ const STRINGS = {
     streak: (n) => n + (n === 1 ? " day" : " days"), sessionTime: "in project", noSession: "No session selected",
     minUnit: "min", hourUnit: "h",
     focus: "Focus", start: "Start", stop: "Stop", focusIdle: "25 min, no distractions",
-    paste: "Paste", hide: "Hide",
+    paste: "Paste", hide: "Hide", closeQ: "Close?",
     focusDone: "Focus done", focusDoneBody: "25 minutes behind you. Take five?",
     resets: (at, left) => "at " + at + " · " + left, resetDone: "limit has reset",
   },
@@ -57,7 +57,7 @@ const STRINGS = {
     streak: (n) => n + " " + (n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дні" : "днів"),
     sessionTime: "у проєкті", noSession: "Сесію не вибрано", minUnit: "хв", hourUnit: "год",
     focus: "Фокус", start: "Старт", stop: "Стоп", focusIdle: "25 хв без відволікань",
-    paste: "Вставити", hide: "Сховати",
+    paste: "Вставити", hide: "Сховати", closeQ: "Закрити?",
     focusDone: "Фокус завершено", focusDoneBody: "25 хвилин позаду. Перерва на п'ять?",
     resets: (at, left) => "о " + at + " · " + left, resetDone: "ліміт оновився",
   },
@@ -262,7 +262,24 @@ const closedOverride = new Map();   // workspace id → when the close was asked
 const [closeTick, setCloseTick] = signal(0);
 const CLOSE_GRACE = 3;
 
+const CLOSE_CONFIRM_SECONDS = 4;
+const [closeAsk, setCloseAsk] = signal(null);   // { id, at } while a row asks "Close?"
+
+function askClose(id) {
+  setCloseAsk({ id, at: nowSecs() });
+}
+
+function cancelClose() {
+  if (closeAsk()) setCloseAsk(null);
+}
+
+function isConfirmingClose(w) {
+  const ask = closeAsk();
+  return !!w && !!ask && ask.id === w.id && nowSecs() - ask.at < CLOSE_CONFIRM_SECONDS;
+}
+
 function closeWorkspace(id) {
+  setCloseAsk(null);
   closedOverride.set(id, nowSecs());
   setCloseTick(closeTick() + 1);
   cmux("workspace.close", { workspace_id: id, force: true });
@@ -770,26 +787,44 @@ function workspaceRow(w) {
         ])
           .fixedSize()
           .layoutPriority(2)
+          .opacity(() => (isConfirmingClose(w()) ? 0 : 1))
           .hideOnHover(),
       ])
         .frame({ maxWidth: "infinity" }),
       progressSegments(w),
     ]),
-    Image("xmark")
-      .font(9).weight("semibold").color("secondary")
-      .padding(4)
-      .cornerRadius(9)
-      .hoverBackground("#7f7f7f4a")
-      .showOnHover()
-      .onTap(() => closeWorkspace(w().id)),
+    // Close asks first, like Cmd+W: the first click turns into a red "Close?",
+    // the second closes. Either control closes while asking, so it doesn't matter
+    // which of the two stacked views the click lands on.
+    ZStack({}, [
+      Text(() => t("closeQ"))
+        .font(11).weight("semibold").color("#FFFFFF")
+        .paddingHorizontal(8).paddingVertical(2)
+        .background(RED)
+        .cornerRadius(8)
+        .fixedSize()
+        .opacity(() => (isConfirmingClose(w()) ? 1 : 0))
+        .onTap(() => closeWorkspace(w().id)),
+      Image("xmark")
+        .font(9).weight("semibold").color("secondary")
+        .padding(4)
+        .cornerRadius(9)
+        .hoverBackground("#7f7f7f4a")
+        .showOnHover()
+        .opacity(() => (isConfirmingClose(w()) ? 0 : 1))
+        .onTap(() => (isConfirmingClose(w()) ? closeWorkspace(w().id) : askClose(w().id))),
+    ]),
   ])
     .paddingHorizontal(10)
     .paddingVertical(6)
     .cornerRadius(8)
-    .background(() => rowBackground(w(), st(), false))
-    .hoverBackground(() => rowBackground(w(), st(), true))
+    .background(() => (isConfirmingClose(w()) ? "#FF453A26" : rowBackground(w(), st(), false)))
+    .hoverBackground(() => (isConfirmingClose(w()) ? "#FF453A33" : rowBackground(w(), st(), true)))
     .frame(() => ({ maxWidth: "infinity", height: progressCounts(w()) ? ROW_PROGRESS_H : ROW_H }))
-    .onTap(() => selectWorkspace(w().id))
+    .onTap(() => {
+      cancelClose();
+      selectWorkspace(w().id);
+    })
     .onDoubleTap(() => setEditingId(w().id))
     .contextMenu(workspaceMenu(w));
 }
@@ -908,8 +943,9 @@ function listHeight() {
 function spacerHeight() {
   const win = Number(globalToken("win:")?.v ?? 0);
   if (!win) return 12;
-  const chip = latestDownload() ? DL_H + 2 : 0;
-  return Math.max(12, win - SIDEBAR_CHROME - listHeight() - chip - CARD_H - 2 * 2);
+  // Root children: list, spacer, chip, card; the hidden chip keeps its gaps.
+  const chip = latestDownload() ? DL_H : 0;
+  return Math.max(12, win - SIDEBAR_CHROME - listHeight() - chip - CARD_H - 3 * 2);
 }
 
 // --- latest download ---------------------------------------------------------------
@@ -989,7 +1025,8 @@ function downloadChip() {
 // --- root --------------------------------------------------------------------------
 sidebar(() =>
   VStack({ spacing: 2 }, [
-    Reorderable(
+    // Wrapper for a side margin, so a selected row doesn't touch the terminal.
+    VStack({ spacing: 0 }, [Reorderable(
       { items: flatEntries, key: (e) => e.id, spacing: 2, onMove: handleMove },
       (e) => {
         const entry = e(); // kind, ids and editing are stable per key
@@ -999,7 +1036,7 @@ sidebar(() =>
         const w = () => (data.workspaces() ?? []).find((x) => x.id === entry.wsId);
         return entry.editing ? workspaceEditRow(w) : workspaceRow(w);
       }
-    ),
+    )]).paddingHorizontal(6),
     Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacerHeight() })),
     downloadChip(),
     activityCard(),
