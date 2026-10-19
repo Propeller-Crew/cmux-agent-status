@@ -11,10 +11,12 @@ For every cmux workspace this writes into its description:
   transcript in the last 2 min;
 - " · zz@<epoch>" is set and cleared by the sidebar (you parked the tab in
   "Sleeping"); this script only keeps it;
-- " · st:<prompts>/<minutes>": your prompts and time spent in this workspace's
-  Claude sessions (pauses over 5 min don't count);
+- " · st:<prompts>/<minutes>": your prompts and the wall-clock minutes this
+  workspace's Claude sessions were active (an entry in a transcript, by you or by
+  Claude, within 5 min of the previous one; parallel sessions count once);
 - on one workspace only, account-wide data: " · day:<prompts>/<minutes>/<agents>/<streak>"
   for today across every Claude session (streak = days in a row with a prompt),
+  " · focus:<epoch>" (a running focus timer, started from the sidebar, carried here),
   " · win:<points>" (cmux's window height, so the sidebar can keep its card at the bottom;
   reported by the window watcher through `--window`, only carried over here),
   " · lim:<5h %>/<5h reset>/<week %>/<week reset>" (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
@@ -40,8 +42,9 @@ from datetime import datetime, timedelta
 CMUX = "/Applications/cmux.app/Contents/Resources/bin/cmux"
 CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
-TOKEN = re.compile(r"^(last prompt @\d+|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|lang:(uk|en))$")
+TOKEN = re.compile(r"^(last prompt @\d+|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|lang:(uk|en))$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
+HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects/*/*.jsonl")
 IDLE_GAP = 300   # seconds between transcript entries still counted as time in the session
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
@@ -75,17 +78,27 @@ def prompt_text(entry):
     return text
 
 
+def mark_minutes(st, start, end):
+    """Marks every wall-clock minute from start to end as active, one bitmask per day,
+    so parallel sessions count once when the masks are OR-ed together."""
+    for minute in range(int(start // 60), int(end // 60) + 1):
+        t = datetime.fromtimestamp(minute * 60)
+        day = t.strftime("%Y-%m-%d")
+        st["mins"][day] = st["mins"].get(day, 0) | (1 << (t.hour * 60 + t.minute))
+
+
 def scan_transcript(path, tx):
-    """Running totals for one transcript: last prompt, prompts, active seconds, and the
-    same per day. Transcripts run to several MB, so each run reads only what was
-    appended since the last one (offset kept in the cache)."""
+    """Running totals for one transcript: last prompt, prompts per day, and which
+    minutes of each day the session was active (an entry within IDLE_GAP of the
+    previous one keeps the minutes between them active). Transcripts run to several MB,
+    so each run reads only what was appended since the last one (offset kept in the cache)."""
     try:
         size = os.path.getsize(path)
     except OSError:
         return None
     st = tx.get(path)
-    if not st or size < st["off"]:          # new, or rewritten from scratch
-        st = {"off": 0, "last": 0, "lp": None, "prompts": 0, "active": 0, "days": {}}
+    if not st or size < st["off"] or "mins" not in st:    # new, rewritten, or an older cache format
+        st = {"off": 0, "last": 0, "lp": None, "prompts": 0, "days": {}, "mins": {}}
     if size > st["off"]:
         with open(path, "rb") as f:
             f.seek(st["off"])
@@ -100,19 +113,42 @@ def scan_transcript(path, tx):
             if not ts:
                 continue
             at = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
-            day = st["days"].setdefault(datetime.fromtimestamp(at).strftime("%Y-%m-%d"), [0, 0])
             gap = at - st["last"]
-            if 0 < gap <= IDLE_GAP:             # a longer pause isn't time spent in the session
-                st["active"] += gap
-                day[1] += gap
+            mark_minutes(st, st["last"] if 0 < gap <= IDLE_GAP else at, at)
             st["last"] = max(st["last"], at)
             if prompt_text(entry):
                 st["prompts"] += 1
-                day[0] += 1
+                day = datetime.fromtimestamp(at).strftime("%Y-%m-%d")
+                st["days"][day] = st["days"].get(day, 0) + 1
                 st["lp"] = int(at)
         st["off"] += end
         tx[path] = st
     return st
+
+
+def active_minutes(states, day=None):
+    """Wall-clock minutes with at least one of these sessions active (overlaps count once)."""
+    days = {day} if day else {d for st in states for d in st["mins"]}
+    total = 0
+    for d in days:
+        mask = 0
+        for st in states:
+            mask |= st["mins"].get(d, 0)
+        total += bin(mask).count("1")
+    return total
+
+
+def hook_sessions():
+    """cmux's Claude session records, read straight from its store (a `cmux sessions list`
+    call costs a quarter of a second each run); falls back to the CLI if the format moves."""
+    try:
+        with open(HOOK_SESSIONS) as f:
+            records = json.load(f)["sessions"].values()
+        return [{"workspace_id": r.get("workspaceId"), "surface_id": r.get("surfaceId"),
+                 "transcript_path": r.get("transcriptPath"), "pid": r.get("pid"),
+                 "agent_lifecycle": r.get("agentLifecycle")} for r in records]
+    except (OSError, ValueError, KeyError, AttributeError):
+        return cmux_json("sessions", "list", "--json", "--all").get("sessions", [])
 
 
 def agents_started_today(transcript, today):
@@ -246,8 +282,8 @@ def main():
     tx = cache.setdefault("_tx", {})
     children, commands = process_table()
     listening = listening_pids()
-    latest, busy, progress, stats = {}, set(), {}, {}
-    for s in cmux_json("sessions", "list", "--json", "--all").get("sessions", []):
+    latest, busy, progress, per_ws = {}, set(), {}, {}
+    for s in hook_sessions():
         ws, path = s.get("workspace_id"), s.get("transcript_path")
         if not ws or not path or not os.path.exists(path):
             continue
@@ -255,8 +291,7 @@ def main():
         at = st and st["lp"]
         if at and at > latest.get(ws, 0):
             latest[ws] = at
-        prompts, active = stats.get(ws, (0, 0))
-        stats[ws] = (prompts + st["prompts"], active + st["active"])
+        per_ws.setdefault(ws, []).append(st)
         if busy_in_background(s, children, commands, listening):
             busy.add(ws)
             if s.get("agent_lifecycle") == "backgroundWorkPending" and fresh_subagent(s):
@@ -267,23 +302,23 @@ def main():
     # Today across every Claude session on this Mac, inside cmux or not, and the streak
     # of days in a row with at least one prompt (today may still be empty).
     today = datetime.now().strftime("%Y-%m-%d")
-    day_prompts = day_active = day_agents = 0
-    active_days = set()
+    day_prompts = day_agents = 0
+    active_days, today_states = set(), []
     for path in glob.glob(TRANSCRIPTS):
         st = scan_transcript(path, tx)
         if not st:
             continue
-        active_days.update(d for d, (prompts, _) in st["days"].items() if prompts)
-        prompts, active = st["days"].get(today, [0, 0])
-        if prompts or active:
-            day_prompts, day_active = day_prompts + prompts, day_active + active
+        active_days.update(d for d, prompts in st["days"].items() if prompts)
+        if today in st["mins"]:
+            today_states.append(st)
+            day_prompts += st["days"].get(today, 0)
             day_agents += agents_started_today(path, today)
     streak, d = 0, datetime.now()
     if today not in active_days:
         d -= timedelta(days=1)
     while d.strftime("%Y-%m-%d") in active_days:
         streak, d = streak + 1, d - timedelta(days=1)
-    day = f"day:{day_prompts}/{round(day_active / 60)}/{day_agents}/{streak}"
+    day = f"day:{day_prompts}/{active_minutes(today_states, today)}/{day_agents}/{streak}"
     for path in [p for p in tx if not os.path.exists(p)]:
         tx.pop(path)
 
@@ -307,6 +342,7 @@ def main():
     limit = rate_limit_token()
     lang = carried(ours, "lang:")
     win = carried(ours, "win:")
+    focus = carried(ours, "focus:")
 
     for w in ours:
         at = latest.get(w["id"])
@@ -319,10 +355,12 @@ def main():
             f"last prompt @{at}" if at else None,
             "bg" if w["id"] in busy else None,
             sleep,
-            "st:%d/%d" % (stats[w["id"]][0], round(stats[w["id"]][1] / 60)) if w["id"] in stats else None,
+            ("st:%d/%d" % (sum(st["prompts"] for st in per_ws[w["id"]]), active_minutes(per_ws[w["id"]])))
+            if w["id"] in per_ws else None,
             limit if is_owner else None,
             day if is_owner else None,
             win if is_owner else None,
+            focus if is_owner else None,
             lang if is_owner else None,
         ]))
         if current != wanted:

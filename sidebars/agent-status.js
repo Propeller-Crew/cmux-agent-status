@@ -37,6 +37,8 @@ const STRINGS = {
     today: "Today", prompts: "prompts", inClaude: "in Claude", agents: "agents",
     streak: (n) => n + (n === 1 ? " day" : " days"), sessionTime: "in this project", noSession: "No session selected",
     minShort: "m", hourShort: "h",
+    focus: "Focus", start: "Start", stop: "Stop", focusIdle: "25 min, no distractions",
+    focusDone: "Focus done", focusDoneBody: "25 minutes behind you. Take five?",
     resets: (at, left) => "at " + at + " · in " + left, resetDone: "limit has reset",
   },
   uk: {
@@ -50,6 +52,8 @@ const STRINGS = {
     today: "Сьогодні", prompts: "промптів", inClaude: "у Claude", agents: "агентів",
     streak: (n) => n + " " + (n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дні" : "днів"),
     sessionTime: "у цьому проєкті", noSession: "Сесію не вибрано", minShort: " хв", hourShort: " год",
+    focus: "Фокус", start: "Старт", stop: "Стоп", focusIdle: "25 хв без відволікань",
+    focusDone: "Фокус завершено", focusDoneBody: "25 хвилин позаду. Перерва на п'ять?",
     resets: (at, left) => "о " + at + " · через " + left, resetDone: "ліміт оновився",
   },
 };
@@ -80,13 +84,19 @@ const [langOverride, setLangOverride] = signal(null);
 const lang = () => langOverride() ?? globalToken("lang:")?.v ?? systemLang();
 const t = (key) => STRINGS[lang()]?.[key] ?? STRINGS.en[key];
 
+// Writes (or with value null, removes) an account-wide token on the workspace that
+// carries them; the sync job keeps it there.
+function setGlobalToken(prefix, value) {
+  const owner = globalToken("lim:")?.w ?? globalToken(prefix)?.w ?? (data.workspaces() ?? [])[0];
+  if (!owner) return;
+  const parts = (owner.description ?? "").split(" · ").filter((p) => p && !p.startsWith(prefix));
+  if (value != null) parts.push(prefix + value);
+  cmux("workspace.action", { action: "set_description", workspace_id: owner.id, description: parts.join(" · ") });
+}
+
 function setLang(code) {
   setLangOverride(code);
-  const owner = globalToken("lim:")?.w ?? globalToken("lang:")?.w ?? (data.workspaces() ?? [])[0];
-  if (!owner) return;
-  const parts = (owner.description ?? "").split(" · ").filter((p) => p && !p.startsWith("lang:"));
-  parts.push("lang:" + code);
-  cmux("workspace.action", { action: "set_description", workspace_id: owner.id, description: parts.join(" · ") });
+  setGlobalToken("lang:", code);
 }
 
 const languageMenu = () => [
@@ -291,7 +301,7 @@ const sectionCount = (id) => visibleWorkspaces().filter((w) => sectionOf(w) === 
 // "lim:<5h %>/<5h reset>/<week %>/<week reset>", "day:<prompts>/<min>/<agents>/<streak>"
 // and "win:<points>" on one workspace, and "st:<prompts>/<min>" on each.
 const LIMIT_SEGMENTS = 16;
-const PAGES = ["limit", "today", "session"];
+const PAGES = ["limit", "focus", "today", "session"];
 const [page, setPage] = signal(0);
 const CARD_BG = "#141418";
 const CARD_TEXT = "#FFFFFF";
@@ -359,13 +369,13 @@ function octoMood() {
   const ws = data.workspaces() ?? [];
   const states = ws.map((w) => agentState(w).kind);
   if (states.includes("needs")) return "needs";
-  if (states.includes("working")) return "work";
+  if (states.includes("working") || focusStart()) return "work";
   if (states.includes("unread")) return "party";
   const last = Math.max(0, ...ws.map((w) => lastPromptAt(w) ?? 0));
   return nowSecs() - last < 1800 ? "idle" : "sleep";
 }
 
-const PIXEL = 3;
+const PIXEL = 2.75;
 function octopus() {
   const pixel = () => {
     const frames = OCTO_FRAMES[octoMood()];
@@ -421,22 +431,82 @@ function limitPage() {
   ]);
 }
 
+// Focus timer: 25 minutes, started and stopped from the card. The start time is a
+// "focus:<epoch>" token, so the timer survives a sidebar reload; at the end cmux posts
+// a notification and the token goes away.
+const FOCUS_SECONDS = 25 * 60;
+let focusOverride;                       // undefined: follow the token; null: stopped; number: started
+const [focusTick, setFocusTick] = signal(0);
+const focusNotified = new Set();
+
+function focusStart() {
+  focusTick();
+  const stored = Number(globalToken("focus:")?.v) || null;
+  if (focusOverride !== undefined) {
+    if (focusOverride === stored) focusOverride = undefined; // caught up
+    else return focusOverride;
+  }
+  return stored;
+}
+
+function setFocus(on) {
+  focusOverride = on ? Math.floor(nowSecs()) : null;
+  setFocusTick(focusTick() + 1);
+  setGlobalToken("focus:", focusOverride);
+}
+
+function focusLeft() {
+  const start = focusStart();
+  if (!start) return null;
+  const left = start + FOCUS_SECONDS - nowSecs();
+  if (left <= 0 && !focusNotified.has(start)) {
+    focusNotified.add(start);
+    cmux("notification.create", { title: t("focusDone"), body: t("focusDoneBody") });
+    setFocus(false);
+  }
+  return Math.max(0, left);
+}
+
+const mmss = (s) => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+
+function focusPage() {
+  const left = () => focusLeft();
+  return VStack({ spacing: 5 }, [
+    HStack({ spacing: 6 }, [
+      Text(() => (left() == null ? mmss(FOCUS_SECONDS) : mmss(left()))).font(22).weight("bold")
+        .color(() => (left() == null ? CARD_TEXT : VIOLET)).fixedSize(),
+      Spacer({ minLength: 4 }),
+      Text(() => (left() == null ? "▶ " + t("start") : "■ " + t("stop")))
+        .font(11).weight("semibold").color(CARD_TEXT)
+        .paddingHorizontal(10).paddingVertical(4)
+        .background(() => (left() == null ? VIOLET : "#FFFFFF26"))
+        .cornerRadius(10)
+        .fixedSize()
+        .cursor("pointer")
+        .onTap(() => setFocus(left() == null)),
+    ]),
+    segmentBar(() => (left() == null ? 0 : 1 - left() / FOCUS_SECONDS), () => VIOLET, LIMIT_SEGMENTS),
+    Text(() => (left() == null ? t("focusIdle") : t("focus") + " · " + t("resets")(clockTime(focusStart() + FOCUS_SECONDS), duration(left()))))
+      .font(10).color(CARD_DIM).lineLimit(1).truncation("tail"),
+  ]);
+}
+
 function stat(value, label) {
   return VStack({ spacing: 1 }, [
-    Text(value).font(17).weight("bold").color(CARD_TEXT).fixedSize(),
-    Text(label).font(10).color(CARD_DIM).fixedSize(),
-  ]).fixedSize();
+    Text(value).font(16).weight("bold").color(CARD_TEXT).fixedSize(),
+    Text(label).font(9).color(CARD_DIM).fixedSize(),
+  ]);
 }
 
 function todayPage() {
   const d = () => today();
   return VStack({ spacing: 5 }, [
     HStack({ spacing: 6 }, [
-      Text(() => t("today")).font(11).weight("semibold").color(CARD_DIM),
+      Text(() => t("today")).font(11).weight("semibold").color(CARD_DIM).fixedSize(),
       Spacer(),
       Text(() => (d()?.streak ? "🔥 " + t("streak")(d().streak) : "")).font(10).color(ORANGE).fixedSize(),
     ]),
-    HStack({ spacing: 8 }, [
+    HStack({ spacing: 10 }, [
       stat(() => String(d()?.prompts ?? 0), () => t("prompts")),
       stat(() => hoursText(d()?.minutes ?? 0), () => t("inClaude")),
       stat(() => String(d()?.agents ?? 0), () => t("agents")),
@@ -468,25 +538,34 @@ function pageDots() {
 }
 
 function activityCard() {
+  // The outer margin lives on a wrapper: in a JS sidebar the modifiers are props of
+  // one node, not layers, so a second .paddingHorizontal would replace the first.
+  return VStack({ spacing: 0 }, [activityCardBody()])
+    .paddingHorizontal(8)
+    .paddingTop(6)
+    .frame({ maxWidth: "infinity", height: CARD_H });
+}
+
+function activityCardBody() {
   return VStack({ spacing: 8 }, [
     HStack({ spacing: 10 }, [
       octopus(),
       VStack({ spacing: 0 }, [
         pageSlot("limit", limitPage()),
+        pageSlot("focus", focusPage()),
         pageSlot("today", todayPage()),
         pageSlot("session", sessionPage()),
       ]).frame({ maxWidth: "infinity" }),
     ]),
     pageDots(),
   ])
-    .padding(12)
+    .paddingHorizontal(16)
+    .paddingVertical(14)
     .background(CARD_BG)
     .borderColor("#FFFFFF14")
     .borderWidth(1)
-    .cornerRadius(20)
-    .paddingHorizontal(4)
-    .paddingTop(6)
-    .frame({ maxWidth: "infinity", height: CARD_H })
+    .cornerRadius(22)
+    .frame({ maxWidth: "infinity" })
     .cursor("pointer")
     .onTap(() => setPage((page() + 1) % PAGES.length))
     .contextMenu(languageMenu());
@@ -756,7 +835,7 @@ const HEADER_H = 40;
 const ROW_H = 30;
 const ROW_PROGRESS_H = 37;
 const TAB_H = 22;
-const CARD_H = 104;
+const CARD_H = 108;
 const LIST_SPACING = 2;
 const SIDEBAR_CHROME = 60;   // title bar above the list and the footer buttons below it
 

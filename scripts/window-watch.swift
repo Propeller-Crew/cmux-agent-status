@@ -1,6 +1,6 @@
 // Watches the height of cmux's main window and hands every new value to the sync
 // script (`last-prompt-sync.py --window <points>`), so the sidebar's activity card
-// follows a resize within about a second instead of waiting for the next sync run.
+// follows a resize within a second or two instead of waiting for the next sync run.
 // A cmux sidebar can't pin anything to its bottom or read the window size itself.
 // Compiled by install.sh to ~/.config/cmux/bin/cmux-window-watch, kept alive by launchd.
 import CoreGraphics
@@ -18,10 +18,14 @@ func cmuxWindowHeight() -> Int? {
         .map { Int($0) }
 }
 
+// Battery: look once a second while nothing changes, five times a second for a few
+// seconds after a change (a drag is usually still going on).
 var reported: Int?
 var pending: (height: Int, since: Date)?
+var lastChange = Date.distantPast
 while true {
     if let h = cmuxWindowHeight(), h != reported {
+        lastChange = Date()
         // Report once the size has held for a moment, not on every frame of a drag.
         if pending?.height != h {
             pending = (h, Date())
@@ -35,5 +39,5 @@ while true {
             pending = nil
         }
     }
-    Thread.sleep(forTimeInterval: 0.25)
+    Thread.sleep(forTimeInterval: Date().timeIntervalSince(lastChange) < 3 ? 0.2 : 1.0)
 }
