@@ -108,7 +108,10 @@ const SECTIONS = [
 const secs = (v) => (v == null ? null : (v > 1e12 ? v / 1000 : v));
 const nowSecs = () => secs(data.clock()?.epoch) ?? Date.now() / 1000;
 
+// Every helper below accepts a missing workspace: a row's bindings can still
+// re-run for a moment after its workspace was closed.
 function lastPromptAt(w) {
+  if (!w) return null;
   const m = /last prompt @(\d+)/.exec(w.description ?? "");
   return Math.max(secs(w.latestAt) ?? 0, m ? Number(m[1]) : 0) || null;
 }
@@ -143,6 +146,7 @@ const [sleepTick, setSleepTick] = signal(0);
 
 function sleptAt(w) {
   sleepTick();
+  if (!w) return null;
   const m = /zz@(\d+)/.exec(w.description ?? "");
   const stored = m ? Number(m[1]) : null;
   if (sleepOverride.has(w.id)) {
@@ -159,6 +163,7 @@ const isAsleep = (w) => {
 };
 
 function setAsleep(w, on) {
+  if (!w) return;
   const at = on ? Math.floor(nowSecs()) : null;
   sleepOverride.set(w.id, at);
   setSleepTick(sleepTick() + 1);
