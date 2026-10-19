@@ -39,7 +39,7 @@ Then two manual steps:
    [ -n "$limits" ] && printf '%s' "$limits" > "$HOME/.claude/rate-limits.json"
    ```
 
-The `automation` socket mode in the snippet is required: the sync job runs from launchd, outside cmux. `config/ghostty.config` is optional: it keeps the terminal opaque, because a translucent one shows a 1 pt seam where text starts; it goes to `~/.config/ghostty/config`.
+The `automation` socket mode in the snippet is required: the sync job runs from launchd, outside cmux. `config/ghostty.config` is optional: a glass terminal, with extra left padding because a translucent cmux pane shows a 1 pt seam where text would start; it goes to `~/.config/ghostty/config`.
 
 Update: `git pull`. The installed files are symlinks into this repo, and cmux hot-reloads the sidebar.
 

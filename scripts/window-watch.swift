@@ -22,7 +22,7 @@ func cmuxWindowHeight() -> Int? {
 
 // Battery: look once a second while nothing changes, five times a second for a few
 // seconds after a change (a drag is usually still going on).
-let downloads = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Downloads")
+var downloads = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Downloads")
 let partial: Set<String> = ["download", "crdownload", "part", "tmp"]
 
 /// The file most recently added to ~/Downloads (by "date added", which AirDrop sets
@@ -69,6 +69,8 @@ while true {
     // happens when something arrived.
     // A screenshot appears as a hidden temp file first and is renamed a moment later,
     // so after any change look again on the next few passes.
+    // URL caches resource values: without this the folder's date never changes.
+    downloads.removeAllCachedResourceValues()
     let stamp = (try? downloads.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     if stamp != downloadsStamp {
         downloadsStamp = stamp

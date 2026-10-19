@@ -795,8 +795,9 @@ function workspaceRow(w) {
     ]),
     // Close asks first, like Cmd+W: the first click turns into a red "Close?",
     // the second closes. Either control closes while asking, so it doesn't matter
-    // which of the two stacked views the click lands on.
-    ZStack({}, [
+    // which of the two stacked views the click lands on. Trailing-aligned, so the X
+    // sits where the state icon was, not centred in the wider "Close?" pill's box.
+    ZStack({ alignment: "trailing" }, [
       Text(() => t("closeQ"))
         .font(11).weight("semibold").color("#FFFFFF")
         .paddingHorizontal(8).paddingVertical(2)
