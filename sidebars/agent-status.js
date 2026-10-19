@@ -368,7 +368,7 @@ function syncOrder() {
 // and "win:<points>" on one workspace, and "st:<prompts>/<min>" on each.
 const LIMIT_SEGMENTS = 16;
 const PAGES = ["limit", "focus", "today", "session"];
-const [page, setPage] = signal(0);
+const [page, setPage] = signal(1);
 const CARD_BG = "#141418";
 const CARD_TEXT = "#FFFFFF";
 const CARD_DIM = "#FFFFFF8C";
@@ -522,20 +522,24 @@ function focusStart() {
 
 function setFocus(on) {
   focusOverride = on ? Math.floor(nowSecs()) : null;
-  setFocusTick(focusTick() + 1);
   setGlobalToken("focus:", focusOverride);
+  setFocusTick(focusTick() + 1);
 }
 
+// A finished timer is over: the notification goes out only right after the
+// end, 15 s (a sidebar reload must not repeat it), and the sync job drops the expired
+// token itself in case the sidebar's own write didn't land.
 function focusLeft() {
   const start = focusStart();
   if (!start) return null;
   const left = start + FOCUS_SECONDS - nowSecs();
-  if (left <= 0 && !focusNotified.has(start)) {
+  if (left > 0) return left;
+  if (left > -15 && !focusNotified.has(start)) {
     focusNotified.add(start);
     cmux("notification.create", { title: t("focusDone"), body: t("focusDoneBody") });
-    setFocus(false);
   }
-  return Math.max(0, left);
+  focusOverride = null;
+  return null;
 }
 
 const mmss = (s) => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(Math.floor(s % 60)).padStart(2, "0");

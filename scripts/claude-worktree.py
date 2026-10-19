@@ -8,6 +8,7 @@ most in their recent tool calls (files read or edited, commands run). A guessed 
 lists up to three candidates and waits for Enter (or a number, or "n" for plain
 Claude). With no repo at all, plain `claude` starts.
 
+A repo Claude doesn't trust yet gets asked about first (Claude refuses -w there).
 `claude -w` doesn't touch the repo's checkout or branches: it makes a new branch and
 a separate copy under <repo>/.claude/worktrees/, branched from whatever is checked
 out. A wrong pick costs a stray worktree (`git worktree remove <path>`).
@@ -19,6 +20,7 @@ import re
 import subprocess
 
 CMUX = "/Applications/cmux.app/Contents/Resources/bin/cmux"
+CLAUDE_CONFIG = os.path.expanduser("~/.claude.json")
 CHUNK = 4 * 1024 * 1024
 MAX_SCAN = 64 * 1024 * 1024    # how far back to look before giving up
 MAX_LINE = 200 * 1024          # longer lines are pasted images or big outputs, not work
@@ -126,6 +128,27 @@ def choose(candidates, cwd):
     return None
 
 
+def trusted(repo):
+    """`claude -w` needs the repo itself trusted; a trusted parent (say ~) isn't enough."""
+    try:
+        with open(CLAUDE_CONFIG) as f:
+            return bool(json.load(f).get("projects", {}).get(repo, {}).get("hasTrustDialogAccepted"))
+    except (OSError, ValueError):
+        return True   # can't tell; let claude decide
+
+
+def trust(repo):
+    """Sets the flag Claude's own trust dialog sets; only after you said yes."""
+    with open(CLAUDE_CONFIG) as f:
+        config = json.load(f)
+    config.setdefault("projects", {}).setdefault(repo, {})["hasTrustDialogAccepted"] = True
+    tmp = CLAUDE_CONFIG + ".worktree-tmp"
+    with open(tmp, "w") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+    os.chmod(tmp, os.stat(CLAUDE_CONFIG).st_mode)
+    os.replace(tmp, CLAUDE_CONFIG)
+
+
 def main():
     cwd, home = os.getcwd(), os.path.expanduser("~")
     repo = toplevel(cwd)
@@ -140,6 +163,15 @@ def main():
             os.execvp("claude", ["claude"])
     if repo != cwd:
         os.chdir(repo)
+    if not trusted(repo):
+        print(f"Claude hasn't been told to trust {repo} yet, and won't make a worktree there without it.")
+        try:
+            answer = input("Trust it, like Claude's own dialog would? Enter = yes, n = open plain Claude here: ")
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        if answer.strip().lower() == "n":
+            os.execvp("claude", ["claude"])
+        trust(repo)
     os.execvp("claude", ["claude", "-w"])
 
 

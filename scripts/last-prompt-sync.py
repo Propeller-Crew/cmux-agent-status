@@ -54,6 +54,7 @@ HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
 # the full run reads it but never writes it, so a report landing mid-run isn't overwritten.
 WATCH_STATE = os.path.expanduser("~/.config/cmux/watch-state.json")
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects/*/*.jsonl")
+FOCUS_SECONDS = 25 * 60   # the sidebar's focus timer
 IDLE_GAP = 300   # seconds between transcript entries still counted as time in the session
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
 
@@ -369,6 +370,8 @@ def main():
     win = "win:" + watched["win:"] if "win:" in watched else carried(ours, "win:")
     download = "dl:" + watched["dl:"] if "dl:" in watched else carried(ours, "dl:")
     focus = carried(ours, "focus:")
+    if focus and time.time() - int(focus.split(":")[1]) > FOCUS_SECONDS:
+        focus = None                 # the timer ran out; the sidebar has notified
     seen = carried(ours, "dlseen:")
 
     # "new": a workspace this script has never seen before and that has no prompt yet,
