@@ -310,15 +310,23 @@ const [showAllSleeping, setShowAllSleeping] = signal(false);
 // --- sections ----------------------------------------------------------------------
 const sectionOf = (w) => (w.pinned ? "pinned" : agentState(w).kind);
 
-const flatEntries = computed(() => {
+// Every workspace by section, in the order the sidebar shows them.
+const sectionRows = computed(() => {
   const buckets = Object.fromEntries(SECTIONS.map((s) => [s.id, []]));
   for (const w of visibleWorkspaces()) buckets[sectionOf(w)].push(w);
+  for (const rows of Object.values(buckets)) {
+    rows.sort((a, b) => (agentState(b).since ?? 0) - (agentState(a).since ?? 0));
+  }
+  return buckets;
+});
+
+const flatEntries = computed(() => {
+  const buckets = sectionRows();
   const editing = editingId();
   const out = [];
   for (const s of SECTIONS) {
     const rows = buckets[s.id];
     if (rows.length === 0) continue;
-    rows.sort((a, b) => (agentState(b).since ?? 0) - (agentState(a).since ?? 0));
     out.push({ kind: "header", id: "h:" + s.id, section: s.id });
     if (collapsed()[s.id]) continue;
     // Sleeping can hold dozens of rows, and every row re-evaluates each second, so
@@ -337,6 +345,20 @@ const flatEntries = computed(() => {
 });
 
 const sectionCount = (id) => visibleWorkspaces().filter((w) => sectionOf(w) === id).length;
+
+// Cmd+1…9 pick workspaces by cmux's own order, so that order follows the sidebar:
+// Cmd+1 is always the top row. Pushed at most every 2 s, and only when it differs.
+const ORDER_EVERY = 2;
+let orderPushedAt = 0;
+
+function syncOrder() {
+  const wanted = SECTIONS.flatMap((s) => sectionRows()[s.id].map((w) => w.id));
+  const actual = visibleWorkspaces().map((w) => w.id);
+  if (wanted.join() === actual.join() || nowSecs() - orderPushedAt < ORDER_EVERY) return 0;
+  orderPushedAt = nowSecs();
+  cmux("workspace.reorder_many", { workspace_ids: JSON.stringify(wanted) });
+  return 0;
+}
 
 // --- activity card ---------------------------------------------------------------
 // Bottom-left, styled like an iPhone Live Activity: the Router octopus on the left
@@ -1042,7 +1064,8 @@ sidebar(() =>
         return entry.editing ? workspaceEditRow(w) : workspaceRow(w);
       }
     )]).paddingHorizontal(6),
-    Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacerHeight() })),
+    // The spacer's binding also keeps cmux's order in step with the sidebar.
+    Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacerHeight() + syncOrder() })),
     downloadChip(),
     activityCard(),
   ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),

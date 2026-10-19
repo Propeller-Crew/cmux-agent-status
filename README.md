@@ -18,6 +18,7 @@ A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs
 - **A pixel octopus** in a propeller beanie on that card: asleep when nothing happens, spinning its propeller while agents work, waving when one waits on you, celebrating fresh results.
 - **Right-click → Open here**: Claude on its own git worktree, a second Claude, the local site in the Dock, an iOS simulator.
 - **Tab strip buttons**: a Claude tab and a Claude-on-a-new-branch tab (`claude -w`) for running several fixes in parallel. If the workspace folder isn't a git repo (a notes vault where Claude edits code elsewhere), the branch button finds the repo from the paths its sessions worked on.
+- **Cmd+1…9 follow the sidebar**: cmux's own workspace order is kept in step with the sections, so Cmd+1 is always the top row (the numbers move as workspaces change section).
 - **English or Ukrainian**: follows macOS; switch with right-click on the activity card or any section header.
 
 ## Install
