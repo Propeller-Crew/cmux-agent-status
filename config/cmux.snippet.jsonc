@@ -21,7 +21,7 @@
       "buttons": [
         { "action": "claude-new-tab", "title": "Claude", "icon": { "type": "image", "path": "./icons/claude.png" } },
         { "action": "claude-worktree-tab", "title": "Claude on a new branch", "icon": { "type": "symbol", "name": "arrow.triangle.branch" } },
-        "cmux.newTerminal", "cmux.newBrowser", "cmux.splitRight"
+        "cmux.newBrowser", "cmux.splitRight"
       ]
     }
   }

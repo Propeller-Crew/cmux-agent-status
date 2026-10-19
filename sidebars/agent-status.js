@@ -33,7 +33,10 @@ const STRINGS = {
     preview: (p) => "Preview localhost:" + p + " in the Dock", noServer: "Site preview (no server running)",
     simulator: "iOS Simulator", sleep: "Put to sleep", wake: "Wake up", rename: "Rename", pin: "Pin", unpin: "Unpin",
     markRead: "Mark as Read", markUnread: "Mark as Unread", closeOthers: "Close Others", close: "Close",
-    wsName: "Workspace name", limit: "5-hour limit", week: "week",
+    wsName: "Workspace name", limit: "5-hour limit", limitShort: "5h", week: "week",
+    today: "Today", prompts: "prompts", inClaude: "in Claude", agents: "agents",
+    streak: (n) => n + (n === 1 ? " day" : " days"), sessionTime: "in this project", noSession: "No session selected",
+    minShort: "m", hourShort: "h",
     resets: (at, left) => "at " + at + " · in " + left, resetDone: "limit has reset",
   },
   uk: {
@@ -43,7 +46,10 @@ const STRINGS = {
     preview: (p) => "Прев'ю localhost:" + p + " у Dock", noServer: "Прев'ю сайту (сервер не запущено)",
     simulator: "Симулятор iOS", sleep: "Приспати (у «Сплять»)", wake: "Розбудити", rename: "Перейменувати",
     pin: "Закріпити", unpin: "Відкріпити", markRead: "Позначити прочитаним", markUnread: "Позначити непрочитаним",
-    closeOthers: "Закрити інші", close: "Закрити", wsName: "Назва", limit: "Ліміт на 5 год", week: "тиждень",
+    closeOthers: "Закрити інші", close: "Закрити", wsName: "Назва", limit: "Ліміт на 5 год", limitShort: "5 год", week: "тиждень",
+    today: "Сьогодні", prompts: "промптів", inClaude: "у Claude", agents: "агентів",
+    streak: (n) => n + " " + (n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дні" : "днів"),
+    sessionTime: "у цьому проєкті", noSession: "Сесію не вибрано", minShort: " хв", hourShort: " год",
     resets: (at, left) => "о " + at + " · через " + left, resetDone: "ліміт оновився",
   },
 };
@@ -239,7 +245,9 @@ function visibleWorkspaces() {
   return ws.filter((w) => !closedOverride.has(w.id));
 }
 
-const [collapsed, setCollapsed] = signal({});
+// Sleeping starts folded: the sidebar scrolls as one piece, so a long list would push
+// the activity card off the bottom.
+const [collapsed, setCollapsed] = signal({ inactive: true });
 const toggleSection = (id) => setCollapsed({ ...collapsed(), [id]: !collapsed()[id] });
 
 const [editingId, setEditingId] = signal(null);
@@ -271,62 +279,211 @@ const flatEntries = computed(() => {
 
 const sectionCount = (id) => visibleWorkspaces().filter((w) => sectionOf(w) === id).length;
 
-// --- usage limit -------------------------------------------------------------------
-// "lim:<5h %>/<5h reset>/<week %>/<week reset>", from Claude Code's status line
-// input via the sync job. A reset that has passed means the limit is fresh.
-const LIMIT_SEGMENTS = 20;
+// --- activity card ---------------------------------------------------------------
+// Bottom-left, styled like an iPhone Live Activity: the Router octopus on the left
+// reacting to the agents, pages on the right (click the card or a dot to flip;
+// cmux sidebars get no swipe gestures). Data comes as tokens from the sync job:
+// "lim:<5h %>/<5h reset>/<week %>/<week reset>", "day:<prompts>/<min>/<agents>/<streak>"
+// on one workspace, and "st:<prompts>/<min>" on each.
+const LIMIT_SEGMENTS = 16;
+const PAGES = ["limit", "today", "session"];
+const [page, setPage] = signal(0);
+const CARD_BG = "#141418";
+const CARD_TEXT = "#FFFFFF";
+const CARD_DIM = "#FFFFFF8C";
 
 function limits() {
   const v = globalToken("lim:")?.v;
   if (!v) return null;
   const [pct, reset, weekPct, weekReset] = v.split("/").map(Number);
   const now = nowSecs();
-  return {
-    pct: reset > now ? pct : 0, reset, fresh: !(reset > now),
-    weekPct: weekReset > now ? weekPct : 0,
-  };
+  return { pct: reset > now ? pct : 0, reset, fresh: !(reset > now), weekPct: weekReset > now ? weekPct : 0 };
+}
+
+function today() {
+  const v = globalToken("day:")?.v;
+  if (!v) return null;
+  const [prompts, minutes, agents, streak] = v.split("/").map(Number);
+  return { prompts, minutes, agents, streak };
+}
+
+function sessionStats() {
+  const w = (data.workspaces() ?? []).find((x) => isSelected(x));
+  const v = token(w, "st:");
+  if (!w || !v) return null;
+  const [prompts, minutes] = v.split("/").map(Number);
+  return { title: cleanTitle(workspaceTitle(w)), prompts, minutes };
 }
 
 const limitColor = (pct) => (pct >= 90 ? RED : pct >= 70 ? ORANGE : GREEN);
+const hoursText = (min) => {
+  if (min < 60) return min + t("minShort");
+  const h = Math.round(min / 6) / 10;
+  return String(h).replace(".", lang() === "uk" ? "," : ".") + t("hourShort");
+};
 
-function limitCard() {
-  const lim = () => limits();
+const OCTO_PALETTE = {"k": "#10121C", "c": "#398FE2", "C": "#70B6F6", "b": "#1C529C", "p": "#2468B8", "r": "#FF8A7A", "R": "#FFBAAA", "s": "#E26660", "e": "#10121C", "w": "#FFFFFF", "h": "#FF6274", "m": "#8C243A", "y": "#FFD45C"};
+const OCTO_FRAMES = {
+  sleep: [
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrrrrrrrrrrrk.", ".krreerrreerrrk.", ".krhrrrmmrrrhrk.", ".krrrrrrrrrrrrk.", "..krrrrrrrrrrk..", "...kssssssssk...", "...rr.rrrr.rr...", "..s...r..r...s..", ".s...s....s...s."],
+  ],
+  idle: [
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrewrrrewrrrk.", ".krreerrreerrrk.", ".krhrrrmmrrrhrk.", ".krrrrrrrrrrrrk.", "..krrrrrrrrrrk..", "...kssssssssk...", "...rr.rrrr.rr...", "..s...r..r...s..", ".s...s....s...s."],
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrewrrrewrrrk.", ".krreerrreerrrk.", ".krhrrrmmrrrhrk.", ".krrrrrrrrrrrrk.", "..krrrrrrrrrrk..", "...kssssssssk...", "...rr.rrrr.rr...", "..s...r..r...s..", ".s...s....s...s."],
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrewrrrewrrrk.", ".krreerrreerrrk.", ".krhrrrmmrrrhrk.", ".krrrrrrrrrrrrk.", "..krrrrrrrrrrk..", "...kssssssssk...", "...rr.rrrr.rr...", "..s...r..r...s..", ".s...s....s...s."],
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrrrrrrrrrrrk.", ".krreerrreerrrk.", ".krhrrrmmrrrhrk.", ".krrrrrrrrrrrrk.", "..krrrrrrrrrrk..", "...kssssssssk...", "...rr.rrrr.rr...", "..s...r..r...s..", ".s...s....s...s."],
+  ],
+  work: [
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrewrrrewrrrk.", ".krreerrreerrrk.", ".krhrrrmmrrrhrk.", ".krrrrrrrrrrrrk.", "..krrrrrrrrrrk..", "...kssssssssk...", "...rr.rrrr.rr...", "..s...r..r...s..", ".s...s....s...s."],
+    ["....CppbbppC....", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrewrrrewrrrk.", ".krreerrreerrrk.", ".krhrrrmmrrrhrk.", ".krrrrrrrrrrrrk.", "..krrrrrrrrrrk..", "...kssssssssk...", "...rr.rrrr.rr...", "..s...r..r...s..", "..s...s..s...s.."],
+  ],
+  needs: [
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrewrrrewrrrk.", ".krreerrreerrrkr", ".krhrrrmmrrrhrkr", ".krrrrrrrrrrrrkr", "..krrrrrrrrrrkr.", "...kssssssssk...", "...rr.rrrr......", "..s...r..r......", ".s...s....s....."],
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrewrrrewrrrr.", ".krreerrreerrrk.", ".krhrrrmmrrrhrkr", ".krrrrrrrrrrrrkr", "..krrrrrrrrrrkr.", "...kssssssssk...", "...rr.rrrr......", "..s...r..r......", "..s...s..s......"],
+  ],
+  party: [
+    ["....CppbbppC....", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrrerrrrerrrk.", ".krrererrererrkr", "rkrhrrrmmrrrhrkr", "rkrrrrrrrrrrrrkr", ".rkrrrrrrrrrrkr.", "...kssssssssk...", "......rrrr......", "......r..r......", ".....s....s....."],
+    ["..pppppbbppppp..", ".......bb.......", ".....kkkkkk.....", "....kCccccck....", "...kCCcccccck...", "..kbbbbbbbbbbk..", ".krRrrrrrrrrrrk.", ".kRrrerrrrerrrr.", ".krrererrererrk.", "rkrhrrrmmrrrhrkr", "rkrrrrrrrrrrrrkr", ".rkrrrrrrrrrrkr.", "...kssssssssk...", "......rrrr......", "......r..r......", "......s..s......"],
+  ],
+};
+
+// What the octopus is doing: waving when an agent waits on you, spinning its
+// propeller while agents work, celebrating fresh results, blinking when you were
+// here in the last half hour, asleep otherwise.
+function octoMood() {
+  const ws = data.workspaces() ?? [];
+  const states = ws.map((w) => agentState(w).kind);
+  if (states.includes("needs")) return "needs";
+  if (states.includes("working")) return "work";
+  if (states.includes("unread")) return "party";
+  const last = Math.max(0, ...ws.map((w) => lastPromptAt(w) ?? 0));
+  return nowSecs() - last < 1800 ? "idle" : "sleep";
+}
+
+const PIXEL = 3;
+function octopus() {
+  const pixel = () => {
+    const frames = OCTO_FRAMES[octoMood()];
+    return frames[(data.clock()?.epoch ?? 0) % frames.length];
+  };
+  const rows = [];
+  for (let y = 0; y < 16; y += 1) {
+    const cells = [];
+    for (let x = 0; x < 16; x += 1) {
+      cells.push(
+        Rectangle()
+          .fill(() => OCTO_PALETTE[pixel()[y][x]] ?? "#00000000")
+          .frame({ width: PIXEL, height: PIXEL })
+      );
+    }
+    rows.push(HStack({ spacing: 0 }, cells));
+  }
+  return VStack({ spacing: 0 }, rows).fixedSize();
+}
+
+// Pages share one slot; the hidden ones collapse to zero height.
+const shown = (name) => () => PAGES[page()] === name;
+const pageSlot = (name, view) =>
+  view.opacity(() => (shown(name)() ? 1 : 0)).frame(() => ({ maxWidth: "infinity", height: shown(name)() ? 58 : 0 }));
+
+function segmentBar(fraction, color, count) {
   const segs = [];
-  for (let i = 0; i < LIMIT_SEGMENTS; i += 1) {
+  for (let i = 0; i < count; i += 1) {
     segs.push(
       Capsule()
-        .fill(() => {
-          const l = lim();
-          return l && (i + 0.5) * (100 / LIMIT_SEGMENTS) <= l.pct ? limitColor(l.pct) : "#7f7f7f33";
-        })
+        .fill(() => ((i + 0.5) / count <= fraction() ? color() : "#FFFFFF26"))
         .frame({ maxWidth: "infinity", height: 4 })
     );
   }
-  return VStack({ spacing: 6 }, [
+  return HStack({ spacing: 2 }, segs);
+}
+
+function limitPage() {
+  const lim = () => limits();
+  return VStack({ spacing: 5 }, [
     HStack({ spacing: 6 }, [
-      Image("gauge.with.needle").font(11).color(() => limitColor(lim()?.pct ?? 0)),
-      Text(() => t("limit")).font(12).weight("semibold").color("secondary"),
-      Spacer(),
-      Text(() => (lim() ? lim().pct + "%" : "")).font(12).weight("bold").color(() => limitColor(lim()?.pct ?? 0)),
-    ]),
-    HStack({ spacing: 2 }, segs),
-    HStack({ spacing: 6 }, [
-      Text(() => {
-        const l = lim();
-        if (!l) return "";
-        return l.fresh ? t("resetDone") : t("resets")(clockTime(l.reset), duration(l.reset - nowSecs()));
-      }).font(11).color("tertiary").lineLimit(1).truncation("tail"),
+      Text(() => (lim() ? lim().pct + "%" : "—")).font(22).weight("bold")
+        .color(() => limitColor(lim()?.pct ?? 0)).fixedSize(),
       Spacer({ minLength: 4 }),
-      Text(() => (lim() ? t("week") + " " + lim().weekPct + "%" : "")).font(11).color("tertiary").fixedSize(),
+      Text(() => (lim() ? t("week") + " " + lim().weekPct + "%" : "")).font(10).color(CARD_DIM).fixedSize(),
     ]),
+    segmentBar(() => (lim()?.pct ?? 0) / 100, () => limitColor(lim()?.pct ?? 0), LIMIT_SEGMENTS),
+    Text(() => {
+      const l = lim();
+      if (!l) return t("limit");
+      return t("limitShort") + " · " + (l.fresh ? t("resetDone") : t("resets")(clockTime(l.reset), duration(l.reset - nowSecs())));
+    }).font(10).color(CARD_DIM).lineLimit(1).truncation("tail"),
+  ]);
+}
+
+function stat(value, label) {
+  return VStack({ spacing: 1 }, [
+    Text(value).font(17).weight("bold").color(CARD_TEXT).fixedSize(),
+    Text(label).font(10).color(CARD_DIM).fixedSize(),
+  ]).fixedSize();
+}
+
+function todayPage() {
+  const d = () => today();
+  return VStack({ spacing: 5 }, [
+    HStack({ spacing: 6 }, [
+      Text(() => t("today")).font(11).weight("semibold").color(CARD_DIM),
+      Spacer(),
+      Text(() => (d()?.streak ? "🔥 " + t("streak")(d().streak) : "")).font(10).color(ORANGE).fixedSize(),
+    ]),
+    HStack({ spacing: 8 }, [
+      stat(() => String(d()?.prompts ?? 0), () => t("prompts")),
+      stat(() => hoursText(d()?.minutes ?? 0), () => t("inClaude")),
+      stat(() => String(d()?.agents ?? 0), () => t("agents")),
+      Spacer({ minLength: 0 }),
+    ]),
+  ]);
+}
+
+function sessionPage() {
+  const st = () => sessionStats();
+  return VStack({ spacing: 5 }, [
+    Text(() => st()?.title ?? t("noSession")).font(11).weight("semibold").color(CARD_DIM).lineLimit(1).truncation("tail"),
+    HStack({ spacing: 12 }, [
+      stat(() => (st() ? hoursText(st().minutes) : "—"), () => t("sessionTime")),
+      stat(() => (st() ? String(st().prompts) : "—"), () => t("prompts")),
+      Spacer({ minLength: 0 }),
+    ]),
+  ]);
+}
+
+function pageDots() {
+  const dots = PAGES.map((_, i) =>
+    Circle()
+      .fill(() => (page() === i ? CARD_TEXT : "#FFFFFF40"))
+      .frame({ width: 5, height: 5 })
+      .onTap(() => setPage(i))
+  );
+  return HStack({ spacing: 5 }, [Spacer(), ...dots, Spacer()]);
+}
+
+function activityCard() {
+  return VStack({ spacing: 8 }, [
+    HStack({ spacing: 10 }, [
+      octopus(),
+      VStack({ spacing: 0 }, [
+        pageSlot("limit", limitPage()),
+        pageSlot("today", todayPage()),
+        pageSlot("session", sessionPage()),
+      ]).frame({ maxWidth: "infinity" }),
+    ]),
+    pageDots(),
   ])
-    .padding(10)
-    .background("#7f7f7f1a")
-    .cornerRadius(10)
+    .padding(12)
+    .background(CARD_BG)
+    .borderColor("#FFFFFF14")
+    .borderWidth(1)
+    .cornerRadius(20)
     .paddingHorizontal(4)
-    .paddingBottom(6)
-    .frame(() => ({ maxWidth: "infinity", height: lim() ? 84 : 0 }))
-    .opacity(() => (lim() ? 1 : 0))
+    .paddingTop(6)
+    .frame({ maxWidth: "infinity" })
+    .cursor("pointer")
+    .onTap(() => setPage((page() + 1) % PAGES.length))
     .contextMenu(languageMenu());
 }
 
@@ -588,7 +745,6 @@ function handleMove(id, index) {
 // --- root --------------------------------------------------------------------------
 sidebar(() =>
   VStack({ spacing: 2 }, [
-    limitCard(),
     Reorderable(
       { items: flatEntries, key: (e) => e.id, spacing: 2, onMove: handleMove },
       (e) => {
@@ -599,6 +755,8 @@ sidebar(() =>
         return entry.editing ? workspaceEditRow(w) : workspaceRow(w);
       }
     ),
-  ]),
+    Spacer({ minLength: 12 }),
+    activityCard(),
+  ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),
   { surface: "glass" }
 )

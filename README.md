@@ -8,10 +8,14 @@ A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs
 - **Progress of background agents** as segments ("12/16") while a batch runs.
 - **Tabs under their workspace** once it has more than one, each with its own state.
 - **Park a workspace**: drag it into Sleeping (or right-click → Put to sleep). It wakes when you write in it again.
-- **Usage limit card**: the 5-hour limit with a bar, when it resets and in how long, plus the weekly one. So you don't open the Claude app just to check.
+- **Activity card** under the list, styled like an iPhone Live Activity, with pages (click the card or a dot; cmux sidebars get no swipe gestures):
+  - **Limit**: the 5-hour Claude Code limit with a bar, when it resets and in how long, plus the weekly one, so you don't open the Claude app just to check;
+  - **Today**: prompts sent, time spent in Claude, agents started, and how many days in a row you've been at it;
+  - **This project**: time and prompts in the selected workspace's Claude sessions.
+- **A pixel octopus** in a propeller beanie on that card: asleep when nothing happens, spinning its propeller while agents work, waving when one waits on you, celebrating fresh results.
 - **Right-click → Open here**: Claude on its own git worktree, a second Claude, the local site in the Dock, an iOS simulator.
 - **Tab strip buttons**: a Claude tab and a Claude-on-a-new-branch tab (`claude -w`) for running several fixes in parallel.
-- **English or Ukrainian**: follows macOS; switch with right-click on the limit card or any section header.
+- **English or Ukrainian**: follows macOS; switch with right-click on the activity card or any section header.
 
 ## Install
 
@@ -52,6 +56,7 @@ Gotchas found on the way (cmux 0.65.2):
 - `ProgressView()` ignores `.frame` and overflows the row; the spinner is an SF Symbol rotated on the clock tick.
 - `.monospacedDigit()` and `.disabled()` don't exist in the JS runtime, and menu items can't be hidden.
 - cmux reports `backgroundWorkPending` for an idle background server too, and older Claude versions never wrote `finished` into subagent meta files, so neither is trusted on its own.
+- The sidebar scrolls as one piece and doesn't know the window height, so nothing can be pinned to its bottom; Sleeping starts folded to keep the activity card in view.
 - cmux names a workspace after its focused tab; opening a simulator renamed it to "Simulator". The sidebar keeps the Claude tab's name.
 
 ## Licence
