@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.propeller.cmux-last-prompt</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>-I</string>
+    <string>__HOME__/.config/cmux/last-prompt-sync.py</string>
+  </array>
+  <key>StartInterval</key><integer>15</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>__HOME__/.config/cmux/last-prompt-sync.log</string>
+</dict>
+</plist>
