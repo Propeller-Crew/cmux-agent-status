@@ -2,7 +2,7 @@
 
 A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs run Claude Code: workspaces grouped by what they need from you, with the state of every agent at a glance, and your Claude usage limit on top.
 
-- **Sections by attention**, as coloured pills: Needs you (a permission prompt or a quiz is open) · New (done, not read yet, tinted blue) · Working · Done · Sleeping (no prompt for a day).
+- **Sections by attention**, as coloured pills: Needs you (a permission prompt or a quiz is open) · New (done, not read yet, tinted blue) · Working · No task yet (a workspace you just opened) · Done · Sleeping (no prompt for a day).
 - **Real "last time you wrote here"**, read from Claude's transcripts, so a cmux restart doesn't turn every tab into "22h".
 - **Background work counts as working**: Claude ended its turn but a background command or background agents are still running and it will pick up on its own. An idle dev server doesn't count.
 - **Progress of background agents** as segments ("12/16") while a batch runs.
@@ -10,8 +10,11 @@ A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs
 - **Park a workspace**: drag it into Sleeping (or right-click → Put to sleep). It wakes when you write in it again.
 - **Activity card** under the list, styled like an iPhone Live Activity, with pages (click the card or a dot; cmux sidebars get no swipe gestures):
   - **Limit**: the 5-hour Claude Code limit with a bar, when it resets and in how long, plus the weekly one, so you don't open the Claude app just to check;
-  - **Today**: prompts sent, time spent in Claude, agents started, and how many days in a row you've been at it;
+  - **Focus**: a 25-minute timer with a notification at the end;
+  - **Today**: prompts sent, hours with at least one Claude session active (parallel sessions count once), background agents started, and how many days in a row you've been at it;
   - **This project**: time and prompts in the selected workspace's Claude sessions.
+- **Latest download, one click away**: when a file lands in ~/Downloads (say, a screenshot AirDropped from the iPhone), a chip above the card pastes it into the open Claude tab, where it becomes an image attachment.
+- **Cmd+N opens Claude** (with the config snippet): new workspaces start with Claude running; a plain terminal is a right-click on "+".
 - **A pixel octopus** in a propeller beanie on that card: asleep when nothing happens, spinning its propeller while agents work, waving when one waits on you, celebrating fresh results.
 - **Right-click → Open here**: Claude on its own git worktree, a second Claude, the local site in the Dock, an iOS simulator.
 - **Tab strip buttons**: a Claude tab and a Claude-on-a-new-branch tab (`claude -w`) for running several fixes in parallel. If the workspace folder isn't a git repo (a notes vault where Claude edits code elsewhere), the branch button finds the repo from the paths its sessions worked on.
@@ -50,7 +53,7 @@ Back to the stock sidebar: right-click the sidebar button → Workspaces. Stop t
 | `scripts/last-prompt-sync.py` | `~/.config/cmux/` | Every 15 s: last prompt per workspace from the Claude transcripts, background work, agent progress, usage limits. Writes them into the workspace description (`last prompt @<epoch> · bg · zz@<epoch>`, plus `lim:… · lang:…` on one workspace), the only field an outside process can set and a sidebar can read. Leaves descriptions in any other format alone. |
 | `scripts/extract-claude-icon.swift` | run by `install.sh` | Copies cmux's own Claude icon to `~/.config/cmux/icons/claude.png` for the tab-strip button. |
 | `launchd/com.propeller.cmux-last-prompt.plist` | `~/Library/LaunchAgents/` | Runs the sync job. Log: `~/.config/cmux/last-prompt-sync.log`. |
-| `scripts/window-watch.swift` + `launchd/com.propeller.cmux-window-watch.plist` | `~/.config/cmux/bin/`, `~/Library/LaunchAgents/` | Watches cmux's window height and passes it on (`last-prompt-sync.py --window`). |
+| `scripts/window-watch.swift` + `launchd/com.propeller.cmux-window-watch.plist` | `~/.config/cmux/bin/`, `~/Library/LaunchAgents/` | Watches cmux's window height and the newest file in ~/Downloads and passes them on (`last-prompt-sync.py --window` / `--download`). |
 
 Gotchas found on the way (cmux 0.65.2):
 

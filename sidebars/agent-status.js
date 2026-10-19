@@ -2,7 +2,7 @@
 // styled after a Warp redesign (rows with "4m" + a state icon).
 //
 // Sections, top to bottom (like the built-in Attention Queue, but by agent
-// state): Pinned > Needs you > New (done, not read) > Working > Done > Sleeping.
+// state): Pinned > Needs you > New (done, not read) > Working > No task yet > Done > Sleeping.
 // Above them, the Claude Code usage limit and when it resets.
 //
 // What cmux doesn't know comes from workspace descriptions, written by
@@ -19,6 +19,7 @@ const VIOLET = "#9B7BFF";
 const GREEN = "#34C759";
 const RED = "#FF453A";
 const GRAY = "#8E8E93";
+const TEAL = "#5AC8FA";
 // The working spinner walks through these, one per clock tick.
 const SPINNER_COLORS = ["#5B8CFF", "#8B5CF6", "#EC4899", "#F59E0B", "#14B8A6"];
 
@@ -27,7 +28,7 @@ const SPINNER_COLORS = ["#5B8CFF", "#8B5CF6", "#EC4899", "#F59E0B", "#14B8A6"];
 // "lang:uk|en" token; until then, macOS's language.
 const STRINGS = {
   en: {
-    pinned: "Pinned", needs: "Needs you", unread: "New", working: "Working", done: "Done", inactive: "Sleeping",
+    pinned: "Pinned", needs: "Needs you", unread: "New", working: "Working", fresh: "No task yet", done: "Done", inactive: "Sleeping",
     now: "now", m: "m", h: "h", d: "d",
     openHere: "Open here", worktree: "Claude on its own branch (worktree)", anotherClaude: "Another Claude",
     preview: (p) => "Preview localhost:" + p + " in the Dock", noServer: "Site preview (no server running)",
@@ -38,11 +39,12 @@ const STRINGS = {
     streak: (n) => n + (n === 1 ? " day" : " days"), sessionTime: "in this project", noSession: "No session selected",
     minShort: "m", hourShort: "h",
     focus: "Focus", start: "Start", stop: "Stop", focusIdle: "25 min, no distractions",
+    paste: "Paste", hide: "Hide",
     focusDone: "Focus done", focusDoneBody: "25 minutes behind you. Take five?",
     resets: (at, left) => "at " + at + " · in " + left, resetDone: "limit has reset",
   },
   uk: {
-    pinned: "Закріплені", needs: "Чекає на тебе", unread: "Нове", working: "В роботі", done: "Готово", inactive: "Сплять",
+    pinned: "Закріплені", needs: "Чекає на тебе", unread: "Нове", working: "В роботі", fresh: "Без задачі", done: "Готово", inactive: "Сплять",
     now: "now", m: "m", h: "h", d: "d",
     openHere: "Відкрити тут", worktree: "Claude в окремій гілці (worktree)", anotherClaude: "Ще один Claude",
     preview: (p) => "Прев'ю localhost:" + p + " у Dock", noServer: "Прев'ю сайту (сервер не запущено)",
@@ -53,6 +55,7 @@ const STRINGS = {
     streak: (n) => n + " " + (n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дні" : "днів"),
     sessionTime: "у цьому проєкті", noSession: "Сесію не вибрано", minShort: " хв", hourShort: " год",
     focus: "Фокус", start: "Старт", stop: "Стоп", focusIdle: "25 хв без відволікань",
+    paste: "Вставити", hide: "Сховати",
     focusDone: "Фокус завершено", focusDoneBody: "25 хвилин позаду. Перерва на п'ять?",
     resets: (at, left) => "о " + at + " · через " + left, resetDone: "ліміт оновився",
   },
@@ -109,6 +112,7 @@ const SECTIONS = [
   { id: "needs", color: ORANGE, icon: "hand.raised.fill" },
   { id: "unread", color: BLUE, icon: "sparkles" },
   { id: "working", color: VIOLET, icon: "bolt.fill" },
+  { id: "fresh", color: TEAL, icon: "square.and.pencil" },
   { id: "done", color: GREEN, icon: "checkmark.seal.fill" },
   { id: "inactive", color: GRAY, icon: "moon.zzz.fill" },
 ];
@@ -184,8 +188,8 @@ function setAsleep(w, on) {
 
 // --- agent state -------------------------------------------------------------------
 // needs you (permission prompt or question) > working (incl. background work) >
-// sleeping (parked by hand) > new (finished while you were elsewhere) > done >
-// sleeping (no prompt for a day).
+// sleeping (parked by hand) > new (finished while you were elsewhere) > no task yet
+// (a live Claude without a prompt) > done > sleeping (no prompt for a day).
 function agentState(w) {
   if (!w) return { kind: "inactive", since: null };
   const agents = w.agents ?? [];
@@ -201,6 +205,9 @@ function agentState(w) {
   if (/(^| · )bg( · |$)/.test(w.description ?? "")) return { kind: "working", since: last };
   if (isAsleep(w)) return { kind: "inactive", since: last };
   if (w.unread > 0) return { kind: "unread", since: last };
+  // A workspace you just opened, no prompt yet ("new" from the sync job): every
+  // session starts here, and without this it would vanish into folded Sleeping.
+  if (!last && /(^| · )new( · |$)/.test(w.description ?? "")) return { kind: "fresh", since: null };
   if (!last || nowSecs() - last > INACTIVE_AFTER) return { kind: "inactive", since: last };
   return { kind: "done", since: last };
 }
@@ -494,7 +501,9 @@ function focusPage() {
 function stat(value, label) {
   return VStack({ spacing: 1 }, [
     Text(value).font(16).weight("bold").color(CARD_TEXT).fixedSize(),
-    Text(label).font(9).color(CARD_DIM).fixedSize(),
+    // Labels may shorten but never set the width: a fixed-size row here would widen
+    // the whole sidebar over the terminal when the sidebar is narrow.
+    Text(label).font(9).color(CARD_DIM).lineLimit(1).truncation("tail"),
   ]);
 }
 
@@ -591,6 +600,9 @@ function stateIcon(st) {
     Image("moon.fill")
       .font(10).color("tertiary")
       .opacity(() => (st().kind === "inactive" ? 1 : 0)),
+    Image("square.and.pencil")
+      .font(10).color(TEAL)
+      .opacity(() => (st().kind === "fresh" ? 1 : 0)),
   ]).frame({ width: 16, height: 16 });
 }
 
@@ -856,7 +868,73 @@ function listHeight() {
 function spacerHeight() {
   const win = Number(globalToken("win:")?.v ?? 0);
   if (!win) return 12;
-  return Math.max(12, win - SIDEBAR_CHROME - listHeight() - CARD_H - 2 * 2);
+  const chip = latestDownload() ? DL_H + 2 : 0;
+  return Math.max(12, win - SIDEBAR_CHROME - listHeight() - chip - CARD_H - 2 * 2);
+}
+
+// --- latest download ---------------------------------------------------------------
+// A screenshot AirDropped from the iPhone lands in ~/Downloads; the watcher reports
+// the newest file ("dl:<epoch>:<url-quoted path>") and this chip pastes it into the
+// open Claude tab, where Claude Code turns an image path into an attachment.
+const DL_H = 40;
+const DL_FRESH = 30 * 60;
+const hiddenDownloads = new Set();
+const [dlTick, setDlTick] = signal(0);
+
+function latestDownload() {
+  dlTick();
+  const v = globalToken("dl:")?.v;
+  if (!v) return null;
+  const i = v.indexOf(":");
+  const at = Number(v.slice(0, i));
+  let path;
+  try {
+    path = decodeURIComponent(v.slice(i + 1));
+  } catch (e) {
+    return null;
+  }
+  if (nowSecs() - at > DL_FRESH || hiddenDownloads.has(path)) return null;
+  return { at, path, name: path.split("/").pop() };
+}
+
+function hideDownload(path) {
+  hiddenDownloads.add(path);
+  setDlTick(dlTick() + 1);
+}
+
+function pasteDownload() {
+  const d = latestDownload();
+  const w = (data.workspaces() ?? []).find((x) => isSelected(x));
+  const tab = (w?.tabs ?? []).find((x) => x.focused) ?? (w?.tabs ?? [])[0];
+  if (!d || !tab?.surfaceId) return;
+  cmux("terminal.paste", { workspace_id: w.id, surface_id: tab.surfaceId, text: d.path + " ", submit_key: "none" });
+  hideDownload(d.path);
+}
+
+function downloadChip() {
+  const d = () => latestDownload();
+  const isImage = () => /\.(png|jpe?g|heic|gif|webp|tiff?)$/i.test(d()?.name ?? "");
+  const body = HStack({ spacing: 8 }, [
+    Image(() => (isImage() ? "photo" : "doc")).font(12).color(BLUE),
+    Text(() => d()?.name ?? "").font(12).color("primary").lineLimit(1).truncation("middle"),
+    Spacer({ minLength: 4 }),
+    Text(() => (d() ? ago(d().at) : "")).font(11).color("secondary").fixedSize(),
+    Text(() => t("paste")).font(11).weight("semibold").color(BLUE).fixedSize(),
+  ])
+    .paddingHorizontal(12)
+    .paddingVertical(8)
+    .background("#4C9EEB1f")
+    .hoverBackground("#4C9EEB33")
+    .cornerRadius(12)
+    .frame({ maxWidth: "infinity" })
+    .cursor("pointer")
+    .onTap(pasteDownload)
+    .contextMenu([Button(() => t("hide"), () => d() && hideDownload(d().path))]);
+  // Wrapper for the margin (modifiers are props of one node, not layers).
+  return VStack({ spacing: 0 }, [body])
+    .paddingHorizontal(8)
+    .frame(() => ({ maxWidth: "infinity", height: d() ? DL_H : 0 }))
+    .opacity(() => (d() ? 1 : 0));
 }
 
 // --- root --------------------------------------------------------------------------
@@ -873,6 +951,7 @@ sidebar(() =>
       }
     ),
     Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacerHeight() })),
+    downloadChip(),
     activityCard(),
   ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),
   { surface: "glass" }

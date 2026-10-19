@@ -15,9 +15,25 @@
   "actions": {
     "claude-new-tab": { "type": "agent", "agent": "claude", "title": "Claude", "target": "newTabInCurrentPane", "palette": true },
     // Finds the repo even when the workspace folder isn't one (from the paths its Claude sessions touched).
-    "claude-worktree-tab": { "type": "command", "command": "~/.config/cmux/claude-worktree", "title": "Claude on a new branch", "palette": true }
+    "claude-worktree-tab": { "type": "command", "command": "~/.config/cmux/claude-worktree", "title": "Claude on a new branch", "palette": true },
+    // Cmd+N / "+" open a workspace with Claude already running; a plain terminal is a right-click on "+".
+    "claude-workspace": { "type": "workspaceCommand", "title": "Claude", "commandName": "Claude workspace", "palette": true }
   },
+  "commands": [{
+    "name": "Claude workspace",
+    "description": "New workspace with Claude running",
+    "workspace": { "cwd": ".", "layout": { "pane": { "surfaces": [{ "type": "terminal", "command": "claude" }] } } }
+  }],
   "ui": {
+    "newWorkspace": {
+      "action": "claude-workspace",
+      "contextMenu": [
+        { "action": "claude-workspace", "title": "Claude" },
+        { "type": "separator" },
+        { "action": "cmux.newTerminal", "title": "Terminal" },
+        { "action": "cmux.newBrowser", "title": "Browser" }
+      ]
+    },
     "surfaceTabBar": {
       "buttons": [
         { "action": "claude-new-tab", "title": "Claude", "icon": { "type": "image", "path": "./icons/claude.png" } },

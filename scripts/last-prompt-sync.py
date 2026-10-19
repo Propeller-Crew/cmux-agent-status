@@ -4,6 +4,7 @@
 For every cmux workspace this writes into its description:
 - when you last wrote to Claude there ("last prompt @<epoch>"): cmux forgets its
   latestAt on restart, so every tab would read "22h"; Claude's transcripts don't forget;
+- " · new" on a workspace you just opened that has no prompt yet;
 - " · bg" while Claude has ended its turn but still works in the background and
   will pick up on its own: a Bash-tool shell (shell-snapshots) under the claude
   process that doesn't listen on a port (an idle dev server isn't work), or cmux's
@@ -17,6 +18,8 @@ For every cmux workspace this writes into its description:
 - on one workspace only, account-wide data: " · day:<prompts>/<minutes>/<agents>/<streak>"
   for today across every Claude session (streak = days in a row with a prompt),
   " · focus:<epoch>" (a running focus timer, started from the sidebar, carried here),
+  " · dl:<epoch>:<url-quoted path>" (the newest file in ~/Downloads, reported by the
+  watcher through `--download`, carried here),
   " · win:<points>" (cmux's window height, so the sidebar can keep its card at the bottom;
   reported by the window watcher through `--window`, only carried over here),
   " · lim:<5h %>/<5h reset>/<week %>/<week reset>" (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
@@ -38,11 +41,12 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 CMUX = "/Applications/cmux.app/Contents/Resources/bin/cmux"
 CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
-TOKEN = re.compile(r"^(last prompt @\d+|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|lang:(uk|en))$")
+TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|lang:(uk|en))$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects/*/*.jsonl")
@@ -259,14 +263,14 @@ def carried(ours, prefix):
                  if p.startswith(prefix)), None)
 
 
-def set_window_height(height):
-    """Fast path for the window watcher: swap only the "win:" token on the owner workspace."""
+def set_owner_token(prefix, value):
+    """Fast path for the watcher: swap one account-wide token on the owner workspace."""
     ours = our_workspaces()
     if not ours:
         return
     owner = ours[0]
-    parts = [p for p in (owner.get("description") or "").split(" · ") if p and not p.startswith("win:")]
-    parts.append(f"win:{height}")
+    parts = [p for p in (owner.get("description") or "").split(" · ") if p and not p.startswith(prefix)]
+    parts.append(prefix + value)
     run(CMUX, "workspace-action", "--workspace", owner["id"],
         "--action", "set-description", "--description", " · ".join(parts))
 
@@ -340,19 +344,31 @@ def main():
     # Account-wide tokens (usage limit, sidebar language) ride on one workspace: the first of ours.
     owner = ours[0]["id"] if ours else None
     limit = rate_limit_token()
-    lang = carried(ours, "lang:")
+    # Remembered in the cache too: these ride on one workspace, and closing it loses them.
+    lang = carried(ours, "lang:") or cache.get("_lang")
+    cache["_lang"] = lang
     win = carried(ours, "win:")
     focus = carried(ours, "focus:")
+    download = carried(ours, "dl:")
 
+    # "new": a workspace this script has never seen before and that has no prompt yet,
+    # i.e. one you just opened. A restored session can also lack a readable prompt
+    # (cmux points it at a transcript Claude hasn't written yet), so "no prompt" alone
+    # doesn't mean new.
+    known = set(cache.get("_known", []))
+    first_run = not known
     for w in ours:
         at = latest.get(w["id"])
         current = w.get("description") or ""
-        if not at and w["id"] != owner:
+        fresh = not at and (("new" in current.split(" · ")) or (w["id"] not in known and not first_run))
+        known.add(w["id"])
+        if not at and not fresh and w["id"] != owner:
             continue
         sleep = next((p for p in current.split(" · ") if p.startswith("zz@")), None)
         is_owner = w["id"] == owner
         wanted = " · ".join(filter(None, [
             f"last prompt @{at}" if at else None,
+            "new" if fresh else None,
             "bg" if w["id"] in busy else None,
             sleep,
             ("st:%d/%d" % (sum(st["prompts"] for st in per_ws[w["id"]]), active_minutes(per_ws[w["id"]])))
@@ -361,18 +377,23 @@ def main():
             day if is_owner else None,
             win if is_owner else None,
             focus if is_owner else None,
+            download if is_owner else None,
             lang if is_owner else None,
         ]))
         if current != wanted:
             run(CMUX, "workspace-action", "--workspace", w["id"],
                 "--action", "set-description", "--description", wanted)
 
+    cache["_known"] = sorted(known & {w["id"] for w in ours})   # forget closed workspaces
     with open(CACHE, "w") as f:
         json.dump(cache, f)
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--window" and sys.argv[2].isdigit():
-        set_window_height(sys.argv[2])
+        set_owner_token("win:", sys.argv[2])
+    elif len(sys.argv) == 4 and sys.argv[1] == "--download" and sys.argv[2].isdigit():
+        # quote() keeps spaces and " · " out of the token; the sidebar decodes it.
+        set_owner_token("dl:", f"{sys.argv[2]}:{quote(sys.argv[3])}")
     else:
         main()
