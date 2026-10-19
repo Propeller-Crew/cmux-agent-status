@@ -15,8 +15,9 @@ For every cmux workspace this writes into its description:
   Claude sessions (pauses over 5 min don't count);
 - on one workspace only, account-wide data: " · day:<prompts>/<minutes>/<agents>/<streak>"
   for today across every Claude session (streak = days in a row with a prompt),
-  " · win:<points>" (cmux's window height, so the sidebar can keep its card at the bottom), " · lim:<5h %>/<5h reset>/<week %>/<week reset>"
-  (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
+  " · win:<points>" (cmux's window height, so the sidebar can keep its card at the bottom;
+  reported by the window watcher through `--window`, only carried over here),
+  " · lim:<5h %>/<5h reset>/<week %>/<week reset>" (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
   line writes) and " · lang:uk|en" (the sidebar's language, set from the sidebar).
 Descriptions that aren't in this format are left alone.
 
@@ -24,13 +25,15 @@ While a batch of background agents runs, the workspace also gets a "done/total"
 progress bar (cmux set-progress), counted from <session>/subagents/*.meta.json
 started after your last prompt.
 
-Runs from launchd every 15 s (launchd/com.propeller.cmux-last-prompt.plist).
+Runs from launchd every 15 s (launchd/com.propeller.cmux-last-prompt.plist); the window
+watcher (scripts/window-watch.swift) calls it with `--window <points>` on every resize.
 """
 import glob
 import json
 import os
 import re
 import subprocess
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -38,8 +41,7 @@ CMUX = "/Applications/cmux.app/Contents/Resources/bin/cmux"
 CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
 TOKEN = re.compile(r"^(last prompt @\d+|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|lang:(uk|en))$")
-RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")
-WINDOW_HEIGHT = os.path.expanduser("~/.config/cmux/bin/cmux-window-height")   # built by install.sh   # written by the Claude Code status line
+RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects/*/*.jsonl")
 IDLE_GAP = 300   # seconds between transcript entries still counted as time in the session
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
@@ -209,6 +211,30 @@ def rate_limit_token():
         return None
 
 
+def our_workspaces():
+    workspaces = cmux_json("workspace", "list", "--json").get("workspaces", [])
+    return [w for w in workspaces
+            if all(TOKEN.match(p) for p in (w.get("description") or "").split(" · ") if p)]
+
+
+def carried(ours, prefix):
+    """A token the sidebar or the window watcher set, wherever it currently sits."""
+    return next((p for w in ours for p in (w.get("description") or "").split(" · ")
+                 if p.startswith(prefix)), None)
+
+
+def set_window_height(height):
+    """Fast path for the window watcher: swap only the "win:" token on the owner workspace."""
+    ours = our_workspaces()
+    if not ours:
+        return
+    owner = ours[0]
+    parts = [p for p in (owner.get("description") or "").split(" · ") if p and not p.startswith("win:")]
+    parts.append(f"win:{height}")
+    run(CMUX, "workspace-action", "--workspace", owner["id"],
+        "--action", "set-description", "--description", " · ".join(parts))
+
+
 def main():
     try:
         with open(CACHE) as f:
@@ -258,8 +284,6 @@ def main():
     while d.strftime("%Y-%m-%d") in active_days:
         streak, d = streak + 1, d - timedelta(days=1)
     day = f"day:{day_prompts}/{round(day_active / 60)}/{day_agents}/{streak}"
-    height = run(WINDOW_HEIGHT).strip() if os.path.exists(WINDOW_HEIGHT) else ""
-    win = f"win:{height}" if height.isdigit() else None
     for path in [p for p in tx if not os.path.exists(p)]:
         tx.pop(path)
 
@@ -277,14 +301,12 @@ def main():
             run(CMUX, "clear-progress", "--workspace", ws)
             shown.pop(ws, None)
 
-    workspaces = cmux_json("workspace", "list", "--json").get("workspaces", [])
-    ours = [w for w in workspaces
-            if all(TOKEN.match(p) for p in (w.get("description") or "").split(" · ") if p)]
+    ours = our_workspaces()
     # Account-wide tokens (usage limit, sidebar language) ride on one workspace: the first of ours.
     owner = ours[0]["id"] if ours else None
     limit = rate_limit_token()
-    lang = next((p for w in ours for p in (w.get("description") or "").split(" · ")
-                 if p.startswith("lang:")), None)
+    lang = carried(ours, "lang:")
+    win = carried(ours, "win:")
 
     for w in ours:
         at = latest.get(w["id"])
@@ -312,4 +334,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--window" and sys.argv[2].isdigit():
+        set_window_height(sys.argv[2])
+    else:
+        main()

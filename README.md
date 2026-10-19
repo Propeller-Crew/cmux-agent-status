@@ -40,7 +40,7 @@ The `automation` socket mode in the snippet is required: the sync job runs from 
 
 Update: `git pull`. The installed files are symlinks into this repo, and cmux hot-reloads the sidebar.
 
-Back to the stock sidebar: right-click the sidebar button → Workspaces. Stop the sync job: `launchctl bootout gui/$(id -u)/com.propeller.cmux-last-prompt`.
+Back to the stock sidebar: right-click the sidebar button → Workspaces. Stop the background jobs: `launchctl bootout gui/$(id -u)/com.propeller.cmux-last-prompt` and `…/com.propeller.cmux-window-watch`.
 
 ## How it works
 
@@ -50,13 +50,14 @@ Back to the stock sidebar: right-click the sidebar button → Workspaces. Stop t
 | `scripts/last-prompt-sync.py` | `~/.config/cmux/` | Every 15 s: last prompt per workspace from the Claude transcripts, background work, agent progress, usage limits. Writes them into the workspace description (`last prompt @<epoch> · bg · zz@<epoch>`, plus `lim:… · lang:…` on one workspace), the only field an outside process can set and a sidebar can read. Leaves descriptions in any other format alone. |
 | `scripts/extract-claude-icon.swift` | run by `install.sh` | Copies cmux's own Claude icon to `~/.config/cmux/icons/claude.png` for the tab-strip button. |
 | `launchd/com.propeller.cmux-last-prompt.plist` | `~/Library/LaunchAgents/` | Runs the sync job. Log: `~/.config/cmux/last-prompt-sync.log`. |
+| `scripts/window-watch.swift` + `launchd/com.propeller.cmux-window-watch.plist` | `~/.config/cmux/bin/`, `~/Library/LaunchAgents/` | Watches cmux's window height and passes it on (`last-prompt-sync.py --window`). |
 
 Gotchas found on the way (cmux 0.65.2):
 
 - `ProgressView()` ignores `.frame` and overflows the row; the spinner is an SF Symbol rotated on the clock tick.
 - `.monospacedDigit()` and `.disabled()` don't exist in the JS runtime, and menu items can't be hidden.
 - cmux reports `backgroundWorkPending` for an idle background server too, and older Claude versions never wrote `finished` into subagent meta files, so neither is trusted on its own.
-- The sidebar scrolls as one piece and doesn't know the window height, so nothing can be pinned to its bottom. A tiny Swift helper (`scripts/window-height.swift`, built by `install.sh`) reports cmux's window height to the sync job, every row has a fixed height, and a spacer pushes the card down. After a window resize it catches up within 15 s. Sleeping starts folded so the list fits.
+- The sidebar scrolls as one piece and doesn't know the window height, so nothing can be pinned to its bottom. A tiny Swift watcher (`scripts/window-watch.swift`, built by `install.sh`, kept alive by launchd, ~0.1% CPU) reports cmux's window height on every resize, every row has a fixed height, and a spacer pushes the card down. It follows a resize within about a second, which is how often cmux refreshes sidebar data. Sleeping starts folded so the list fits.
 - cmux names a workspace after its focused tab; opening a simulator renamed it to "Simulator". The sidebar keeps the Claude tab's name.
 
 ## Licence
