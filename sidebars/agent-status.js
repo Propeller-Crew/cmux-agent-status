@@ -954,7 +954,9 @@ function spacerHeight() {
 // open Claude tab, where Claude Code turns an image path into an attachment.
 const DL_H = 40;
 const DL_FRESH = 30 * 60;
-const hiddenDownloads = new Set();
+// Hidden or pasted is remembered as "dlseen:<epoch>" (the sync job carries it), so
+// a reload of the sidebar doesn't bring back a file you already dealt with.
+let seenOverride = 0;
 const [dlTick, setDlTick] = signal(0);
 
 function latestDownload() {
@@ -969,13 +971,15 @@ function latestDownload() {
   } catch (e) {
     return null;
   }
-  if (nowSecs() - at > DL_FRESH || hiddenDownloads.has(path)) return null;
+  const seen = Math.max(seenOverride, Number(globalToken("dlseen:")?.v) || 0);
+  if (nowSecs() - at > DL_FRESH || at <= seen) return null;
   return { at, path, name: path.split("/").pop() };
 }
 
-function hideDownload(path) {
-  hiddenDownloads.add(path);
+function hideDownload(at) {
+  seenOverride = at;
   setDlTick(dlTick() + 1);
+  setGlobalToken("dlseen:", at);
 }
 
 function pasteDownload() {
@@ -984,7 +988,7 @@ function pasteDownload() {
   const tab = (w?.tabs ?? []).find((x) => x.focused) ?? (w?.tabs ?? [])[0];
   if (!d || !tab?.surfaceId) return;
   cmux("terminal.paste", { workspace_id: w.id, surface_id: tab.surfaceId, text: d.path + " ", submit_key: "none" });
-  hideDownload(d.path);
+  hideDownload(d.at);
 }
 
 function downloadChip() {
@@ -1002,7 +1006,7 @@ function downloadChip() {
         .cornerRadius(9)
         .hoverBackground("#7f7f7f4a")
         .showOnHover()
-        .onTap(() => d() && hideDownload(d().path)),
+        .onTap(() => d() && hideDownload(d().at)),
     ]),
     Text(() => t("paste")).font(11).weight("semibold").color(BLUE).fixedSize(),
   ])
@@ -1014,7 +1018,7 @@ function downloadChip() {
     .frame({ maxWidth: "infinity" })
     .cursor("pointer")
     .onTap(pasteDownload)
-    .contextMenu([Button(() => t("hide"), () => d() && hideDownload(d().path))]);
+    .contextMenu([Button(() => t("hide"), () => d() && hideDownload(d().at))]);
   // Wrapper for the margin (modifiers are props of one node, not layers).
   return VStack({ spacing: 0 }, [body])
     .paddingHorizontal(8)
