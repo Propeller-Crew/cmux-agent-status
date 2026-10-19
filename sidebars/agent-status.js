@@ -35,13 +35,14 @@ const STRINGS = {
     simulator: "iOS Simulator", sleep: "Put to sleep", wake: "Wake up", rename: "Rename", pin: "Pin", unpin: "Unpin",
     markRead: "Mark as Read", markUnread: "Mark as Unread", closeOthers: "Close Others", close: "Close",
     wsName: "Workspace name", limit: "5-hour limit", limitShort: "5h", week: "week",
+    more: (n) => n + " more",
     today: "Today", prompts: "prompts", inClaude: "in Claude", agents: "agents",
     streak: (n) => n + (n === 1 ? " day" : " days"), sessionTime: "in project", noSession: "No session selected",
     minUnit: "min", hourUnit: "h",
     focus: "Focus", start: "Start", stop: "Stop", focusIdle: "25 min, no distractions",
     paste: "Paste", hide: "Hide",
     focusDone: "Focus done", focusDoneBody: "25 minutes behind you. Take five?",
-    resets: (at, left) => "at " + at + " · in " + left, resetDone: "limit has reset",
+    resets: (at, left) => "at " + at + " · " + left, resetDone: "limit has reset",
   },
   uk: {
     pinned: "Закріплені", needs: "Чекає на тебе", unread: "Нове", working: "В роботі", fresh: "Без задачі", done: "Готово", inactive: "Сплять",
@@ -50,14 +51,15 @@ const STRINGS = {
     preview: (p) => "Прев'ю localhost:" + p + " у Dock", noServer: "Прев'ю сайту (сервер не запущено)",
     simulator: "Симулятор iOS", sleep: "Приспати (у «Сплять»)", wake: "Розбудити", rename: "Перейменувати",
     pin: "Закріпити", unpin: "Відкріпити", markRead: "Позначити прочитаним", markUnread: "Позначити непрочитаним",
-    closeOthers: "Закрити інші", close: "Закрити", wsName: "Назва", limit: "Ліміт на 5 год", limitShort: "5 год", week: "тиждень",
+    closeOthers: "Закрити інші", close: "Закрити", wsName: "Назва", limit: "Ліміт на 5 год", limitShort: "5 год", week: "тиж.",
+    more: (n) => "ще " + n,
     today: "Сьогодні", prompts: "промптів", inClaude: "у Claude", agents: "агентів",
     streak: (n) => n + " " + (n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дні" : "днів"),
     sessionTime: "у проєкті", noSession: "Сесію не вибрано", minUnit: "хв", hourUnit: "год",
     focus: "Фокус", start: "Старт", stop: "Стоп", focusIdle: "25 хв без відволікань",
     paste: "Вставити", hide: "Сховати",
     focusDone: "Фокус завершено", focusDoneBody: "25 хвилин позаду. Перерва на п'ять?",
-    resets: (at, left) => "о " + at + " · через " + left, resetDone: "ліміт оновився",
+    resets: (at, left) => "о " + at + " · " + left, resetDone: "ліміт оновився",
   },
 };
 const DURATION = { en: ["h", "m"], uk: [" год", " хв"] };
@@ -252,20 +254,25 @@ function selectWorkspace(id) {
   cmux("workspace.select", { workspace_id: id });
 }
 
-const closedOverride = new Set();
+// The row hides at once; cmux catches up. Closing is forced: without it cmux refuses
+// a workspace whose terminal runs a process (Claude does) and waits for a
+// confirmation, and the hidden row never came back. If the close still didn't
+// happen, the row reappears after a few seconds instead of vanishing for good.
+const closedOverride = new Map();   // workspace id → when the close was asked
 const [closeTick, setCloseTick] = signal(0);
+const CLOSE_GRACE = 3;
 
 function closeWorkspace(id) {
-  closedOverride.add(id);
+  closedOverride.set(id, nowSecs());
   setCloseTick(closeTick() + 1);
-  cmux("workspace.close", { workspace_id: id });
+  cmux("workspace.close", { workspace_id: id, force: true });
 }
 
 function visibleWorkspaces() {
   closeTick();
   const ws = data.workspaces() ?? [];
-  for (const id of Array.from(closedOverride)) {
-    if (!ws.some((w) => w.id === id)) closedOverride.delete(id); // caught up
+  for (const [id, at] of Array.from(closedOverride)) {
+    if (!ws.some((w) => w.id === id) || nowSecs() - at > CLOSE_GRACE) closedOverride.delete(id);
   }
   return ws.filter((w) => !closedOverride.has(w.id));
 }
@@ -273,9 +280,15 @@ function visibleWorkspaces() {
 // Sleeping starts folded: the sidebar scrolls as one piece, so a long list would push
 // the activity card off the bottom.
 const [collapsed, setCollapsed] = signal({ inactive: true });
-const toggleSection = (id) => setCollapsed({ ...collapsed(), [id]: !collapsed()[id] });
+const toggleSection = (id) => {
+  if (id === "inactive") setShowAllSleeping(false);
+  setCollapsed({ ...collapsed(), [id]: !collapsed()[id] });
+};
 
 const [editingId, setEditingId] = signal(null);
+
+const SLEEPING_PREVIEW = 12;
+const [showAllSleeping, setShowAllSleeping] = signal(false);
 
 // --- sections ----------------------------------------------------------------------
 const sectionOf = (w) => (w.pinned ? "pinned" : agentState(w).kind);
@@ -291,13 +304,17 @@ const flatEntries = computed(() => {
     rows.sort((a, b) => (agentState(b).since ?? 0) - (agentState(a).since ?? 0));
     out.push({ kind: "header", id: "h:" + s.id, section: s.id });
     if (collapsed()[s.id]) continue;
-    for (const w of rows) {
+    // Sleeping can hold dozens of rows, and every row re-evaluates each second, so
+    // unfolding it all at once lags; show the latest few and a "more" row.
+    const capped = s.id === "inactive" && !showAllSleeping() && rows.length > SLEEPING_PREVIEW;
+    for (const w of capped ? rows.slice(0, SLEEPING_PREVIEW) : rows) {
       out.push({ kind: "ws", id: w.id + (editing === w.id ? ":edit" : ""), wsId: w.id, editing: editing === w.id });
       // Tabs get their own rows once a workspace has more than one, so a
       // second agent in the same project is as visible as the first.
       if (s.id === "inactive" || (w.tabs ?? []).length < 2) continue;
       for (const x of w.tabs) out.push({ kind: "tab", id: w.id + "/" + x.id, wsId: w.id, tabId: x.id });
     }
+    if (capped) out.push({ kind: "more", id: "more:" + s.id, count: rows.length - SLEEPING_PREVIEW });
   }
   return out;
 });
@@ -433,6 +450,7 @@ function limitPage() {
     HStack({ spacing: 6 }, [
       Text(() => (lim() ? lim().pct + "%" : "—")).font(22).weight("bold")
         .color(() => limitColor(lim()?.pct ?? 0)).fixedSize(),
+      Text(() => t("limitShort")).font(10).color(CARD_DIM).fixedSize(),
       Spacer({ minLength: 4 }),
       Text(() => (lim() ? t("week") + " " + lim().weekPct + "%" : "")).font(10).color(CARD_DIM).fixedSize(),
     ]),
@@ -440,7 +458,7 @@ function limitPage() {
     Text(() => {
       const l = lim();
       if (!l) return t("limit");
-      return t("limitShort") + " · " + (l.fresh ? t("resetDone") : t("resets")(clockTime(l.reset), duration(l.reset - nowSecs())));
+      return l.fresh ? t("resetDone") : t("resets")(clockTime(l.reset), duration(l.reset - nowSecs()));
     }).font(10).color(CARD_DIM).lineLimit(1).truncation("tail"),
   ]);
 }
@@ -829,6 +847,21 @@ function sectionHeader(id) {
     .contextMenu(languageMenu());
 }
 
+function moreRow(entry) {
+  return HStack({ spacing: 6 }, [
+    Text(() => t("more")(entry.count)).font(12).color("secondary"),
+    Image("chevron.down").font(9).weight("semibold").color("tertiary"),
+    Spacer(),
+  ])
+    .paddingHorizontal(10)
+    .cornerRadius(8)
+    .hoverBackground("#7f7f7f1c")
+    .frame({ maxWidth: "infinity", height: ROW_H })
+    .fixed()
+    .cursor("pointer")
+    .onTap(() => setShowAllSleeping(true));
+}
+
 // Sections are computed from state, so the only drop that means anything is
 // into Sleeping (park it) or out of it (wake it). Anything else springs back.
 function handleMove(id, index) {
@@ -863,6 +896,7 @@ function listHeight() {
   entries.forEach((e, i) => {
     if (e.kind === "header") h += i === 0 ? HEADER_FIRST_H : HEADER_H;
     else if (e.kind === "tab") h += TAB_H;
+    else if (e.kind === "more") h += ROW_H;
     else {
       const w = (data.workspaces() ?? []).find((x) => x.id === e.wsId);
       h += progressCounts(w) ? ROW_PROGRESS_H : ROW_H;
@@ -924,7 +958,16 @@ function downloadChip() {
     Image(() => (isImage() ? "photo" : "doc")).font(12).color(BLUE),
     Text(() => d()?.name ?? "").font(12).color("primary").lineLimit(1).truncation("middle"),
     Spacer({ minLength: 4 }),
-    Text(() => (d() ? ago(d().at) : "")).font(11).color("secondary").fixedSize(),
+    ZStack({}, [
+      Text(() => (d() ? ago(d().at) : "")).font(11).color("secondary").fixedSize().hideOnHover(),
+      Image("xmark")
+        .font(9).weight("semibold").color("secondary")
+        .padding(4)
+        .cornerRadius(9)
+        .hoverBackground("#7f7f7f4a")
+        .showOnHover()
+        .onTap(() => d() && hideDownload(d().path)),
+    ]),
     Text(() => t("paste")).font(11).weight("semibold").color(BLUE).fixedSize(),
   ])
     .paddingHorizontal(12)
@@ -952,6 +995,7 @@ sidebar(() =>
         const entry = e(); // kind, ids and editing are stable per key
         if (entry.kind === "header") return sectionHeader(entry.section);
         if (entry.kind === "tab") return tabRow(entry);
+        if (entry.kind === "more") return moreRow(entry);
         const w = () => (data.workspaces() ?? []).find((x) => x.id === entry.wsId);
         return entry.editing ? workspaceEditRow(w) : workspaceRow(w);
       }
