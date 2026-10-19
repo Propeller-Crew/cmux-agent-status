@@ -2,61 +2,136 @@
 // styled after a Warp redesign (rows with "4m" + a state icon).
 //
 // Sections, top to bottom (like the built-in Attention Queue, but by agent
-// state): Pinned > Needs you > New (done, not read) > Working > Done > Inactive.
+// state): Pinned > Needs you > New (done, not read) > Working > Done > Sleeping.
+// Above them, the Claude Code usage limit and when it resets.
 //
-// "When did I last write here" and "still busy in the background" come from
-// the workspace description ("last prompt @<epoch>[ · bg]"), written by
-// ~/.config/cmux/last-prompt-sync.py, because cmux forgets latestAt on restart
-// and calls a tab done as soon as Claude ends its turn.
+// What cmux doesn't know comes from workspace descriptions, written by
+// scripts/last-prompt-sync.py: "last prompt @<epoch> · bg · zz@<epoch> · lim:… · lang:…".
+// cmux forgets latestAt on restart, calls a tab done as soon as Claude ends its
+// turn, and has no place for account-wide data, so the description carries it.
 //
 // Select: cmux sidebar select agent-status   Check: cmux sidebar validate agent-status
 
 const INACTIVE_AFTER = 24 * 3600;
 const ORANGE = "#F5A524";
 const BLUE = "#4C9EEB";
+const VIOLET = "#9B7BFF";
+const GREEN = "#34C759";
+const RED = "#FF453A";
+const GRAY = "#8E8E93";
 // The working spinner walks through these, one per clock tick.
 const SPINNER_COLORS = ["#5B8CFF", "#8B5CF6", "#EC4899", "#F59E0B", "#14B8A6"];
 
-// Each section is a coloured pill with its own icon, so the list splits into
-// blocks at a glance (the blue "Нове" pill is what the rest were modelled on).
-const VIOLET = "#9B7BFF";
-const GREEN = "#34C759";
-const GRAY = "#8E8E93";
+// --- language ----------------------------------------------------------------------
+// Picked with right-click on the limit card or a section header, stored as a
+// "lang:uk|en" token; until then, macOS's language.
+const STRINGS = {
+  en: {
+    pinned: "Pinned", needs: "Needs you", unread: "New", working: "Working", done: "Done", inactive: "Sleeping",
+    now: "now", m: "m", h: "h", d: "d",
+    openHere: "Open here", worktree: "Claude on its own branch (worktree)", anotherClaude: "Another Claude",
+    preview: (p) => "Preview localhost:" + p + " in the Dock", noServer: "Site preview (no server running)",
+    simulator: "iOS Simulator", sleep: "Put to sleep", wake: "Wake up", rename: "Rename", pin: "Pin", unpin: "Unpin",
+    markRead: "Mark as Read", markUnread: "Mark as Unread", closeOthers: "Close Others", close: "Close",
+    wsName: "Workspace name", limit: "5-hour limit", week: "week",
+    resets: (at, left) => "at " + at + " · in " + left, resetDone: "limit has reset",
+  },
+  uk: {
+    pinned: "Закріплені", needs: "Чекає на тебе", unread: "Нове", working: "В роботі", done: "Готово", inactive: "Сплять",
+    now: "now", m: "m", h: "h", d: "d",
+    openHere: "Відкрити тут", worktree: "Claude в окремій гілці (worktree)", anotherClaude: "Ще один Claude",
+    preview: (p) => "Прев'ю localhost:" + p + " у Dock", noServer: "Прев'ю сайту (сервер не запущено)",
+    simulator: "Симулятор iOS", sleep: "Приспати (у «Сплять»)", wake: "Розбудити", rename: "Перейменувати",
+    pin: "Закріпити", unpin: "Відкріпити", markRead: "Позначити прочитаним", markUnread: "Позначити непрочитаним",
+    closeOthers: "Закрити інші", close: "Закрити", wsName: "Назва", limit: "Ліміт на 5 год", week: "тиждень",
+    resets: (at, left) => "о " + at + " · через " + left, resetDone: "ліміт оновився",
+  },
+};
+const DURATION = { en: ["h", "m"], uk: [" год", " хв"] };
+
+const token = (w, name) => {
+  const m = new RegExp("(?:^| · )" + name + "([^ ]+)").exec(w?.description ?? "");
+  return m ? m[1] : null;
+};
+// Account-wide tokens live on one workspace (the sync job picks it).
+const globalToken = (name) => {
+  for (const w of data.workspaces() ?? []) {
+    const v = token(w, name);
+    if (v) return { w, v };
+  }
+  return null;
+};
+
+function systemLang() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale.startsWith("uk") ? "uk" : "en";
+  } catch (e) {
+    return "en";
+  }
+}
+
+const [langOverride, setLangOverride] = signal(null);
+const lang = () => langOverride() ?? globalToken("lang:")?.v ?? systemLang();
+const t = (key) => STRINGS[lang()]?.[key] ?? STRINGS.en[key];
+
+function setLang(code) {
+  setLangOverride(code);
+  const owner = globalToken("lim:")?.w ?? globalToken("lang:")?.w ?? (data.workspaces() ?? [])[0];
+  if (!owner) return;
+  const parts = (owner.description ?? "").split(" · ").filter((p) => p && !p.startsWith("lang:"));
+  parts.push("lang:" + code);
+  cmux("workspace.action", { action: "set_description", workspace_id: owner.id, description: parts.join(" · ") });
+}
+
+const languageMenu = () => [
+  Button("Українська", () => setLang("uk")),
+  Button("English", () => setLang("en")),
+];
+
 const SECTIONS = [
-  { id: "pinned", title: "Закріплені", color: GRAY, icon: "pin.fill" },
-  { id: "needs", title: "Чекає на тебе", color: ORANGE, icon: "hand.raised.fill" },
-  { id: "unread", title: "Нове", color: BLUE, icon: "sparkles" },
-  { id: "working", title: "В роботі", color: VIOLET, icon: "bolt.fill" },
-  { id: "done", title: "Готово", color: GREEN, icon: "checkmark.seal.fill" },
-  { id: "inactive", title: "Сплять", color: GRAY, icon: "moon.zzz.fill" },
+  { id: "pinned", color: GRAY, icon: "pin.fill" },
+  { id: "needs", color: ORANGE, icon: "hand.raised.fill" },
+  { id: "unread", color: BLUE, icon: "sparkles" },
+  { id: "working", color: VIOLET, icon: "bolt.fill" },
+  { id: "done", color: GREEN, icon: "checkmark.seal.fill" },
+  { id: "inactive", color: GRAY, icon: "moon.zzz.fill" },
 ];
 
 // --- time --------------------------------------------------------------------------
 // Epochs arrive in seconds; guard against milliseconds just in case.
-const secs = (t) => (t == null ? null : (t > 1e12 ? t / 1000 : t));
+const secs = (v) => (v == null ? null : (v > 1e12 ? v / 1000 : v));
 const nowSecs = () => secs(data.clock()?.epoch) ?? Date.now() / 1000;
 
 function lastPromptAt(w) {
-  const m = /@(\d{9,})/.exec(w.description ?? "");
+  const m = /last prompt @(\d+)/.exec(w.description ?? "");
   return Math.max(secs(w.latestAt) ?? 0, m ? Number(m[1]) : 0) || null;
 }
 
 function ago(since) {
   if (!since) return "";
   const s = Math.max(0, nowSecs() - since);
-  if (s < 60) return "now";
-  if (s < 3600) return Math.floor(s / 60) + "m";
-  if (s < 86400) return Math.floor(s / 3600) + "h";
-  return Math.floor(s / 86400) + "d";
+  if (s < 60) return t("now");
+  if (s < 3600) return Math.floor(s / 60) + t("m");
+  if (s < 86400) return Math.floor(s / 3600) + t("h");
+  return Math.floor(s / 86400) + t("d");
 }
 
-// --- agent state -------------------------------------------------------------------
-// needs you (agent asked a question / wants permission) > working > new
-// (finished while you were elsewhere) > done > inactive (no prompt for a day).
-// --- manual sleep ----------------------------------------------------------------
-// Drag a row into «Сплять» (or right-click → Приспати) to park it there until you
-// write in it again. Stored as "zz@<epoch>" in the description; last-prompt-sync.py
-// keeps it. An agent that is working or waiting on you still wins.
+function duration(s) {
+  const [h, m] = DURATION[lang()] ?? DURATION.en;
+  const hours = Math.floor(s / 3600);
+  const mins = Math.max(1, Math.round((s % 3600) / 60));
+  return hours > 0 ? hours + h + " " + mins + m : mins + m;
+}
+
+const clockTime = (epoch) => {
+  const d = new Date(epoch * 1000);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+};
+
+// --- manual sleep ------------------------------------------------------------------
+// Drag a row into Sleeping (or right-click → Put to sleep) to park it there until
+// you write in it again. Stored as "zz@<epoch>"; the sync job keeps it. An agent
+// that is working or waiting on you still wins.
 const sleepOverride = new Map();
 const [sleepTick, setSleepTick] = signal(0);
 
@@ -86,6 +161,10 @@ function setAsleep(w, on) {
   cmux("workspace.action", { action: "set_description", workspace_id: w.id, description: parts.join(" · ") });
 }
 
+// --- agent state -------------------------------------------------------------------
+// needs you (permission prompt or question) > working (incl. background work) >
+// sleeping (parked by hand) > new (finished while you were elsewhere) > done >
+// sleeping (no prompt for a day).
 function agentState(w) {
   if (!w) return { kind: "inactive", since: null };
   const agents = w.agents ?? [];
@@ -97,7 +176,7 @@ function agentState(w) {
   if (working) return { kind: "working", since: secs(working.sinceEpoch ?? working.lastActivityAt) };
   const last = lastPromptAt(w);
   // Turn ended, but a background shell or background agents are still going
-  // and Claude will pick up when they finish (flag from last-prompt-sync.py).
+  // and Claude will pick up when they finish (flag from the sync job).
   if (/(^| · )bg( · |$)/.test(w.description ?? "")) return { kind: "working", since: last };
   if (isAsleep(w)) return { kind: "inactive", since: last };
   if (w.unread > 0) return { kind: "unread", since: last };
@@ -107,16 +186,16 @@ function agentState(w) {
 
 // Claude Code prefixes the terminal title with its own spinner glyph (✳ ◐ …);
 // the state icon already says that, so drop it from the name.
-const cleanTitle = (t) => (t ?? "").replace(/^[\s✳✶✻✽✢✦·•●○◐◓◑◒⠀-⣿*]+/, "");
+const cleanTitle = (s) => (s ?? "").replace(/^[\s✳✶✻✽✢✦·•●○◐◓◑◒⠀-⣿*]+/, "");
 
 // cmux names a workspace after its focused tab, so opening a simulator or a
-// browser renames "Нотч алерт" to "Simulator". Keep the Claude tab's name then.
+// browser renames a project to "Simulator". Keep the Claude tab's name then.
 function workspaceTitle(w) {
   if (!w) return "";
   const tabs = w.tabs ?? [];
   const agentPanels = new Set((w.agents ?? []).map((a) => a.panelId));
-  const borrowed = tabs.some((t) => t.title === w.title && !agentPanels.has(t.id));
-  const agentTab = tabs.find((t) => agentPanels.has(t.id));
+  const borrowed = tabs.some((x) => x.title === w.title && !agentPanels.has(x.id));
+  const agentTab = tabs.find((x) => agentPanels.has(x.id));
   return borrowed && agentTab ? agentTab.title : w.title;
 }
 
@@ -184,13 +263,72 @@ const flatEntries = computed(() => {
       // Tabs get their own rows once a workspace has more than one, so a
       // second agent in the same project is as visible as the first.
       if (s.id === "inactive" || (w.tabs ?? []).length < 2) continue;
-      for (const t of w.tabs) out.push({ kind: "tab", id: w.id + "/" + t.id, wsId: w.id, tabId: t.id });
+      for (const x of w.tabs) out.push({ kind: "tab", id: w.id + "/" + x.id, wsId: w.id, tabId: x.id });
     }
   }
   return out;
 });
 
 const sectionCount = (id) => visibleWorkspaces().filter((w) => sectionOf(w) === id).length;
+
+// --- usage limit -------------------------------------------------------------------
+// "lim:<5h %>/<5h reset>/<week %>/<week reset>", from Claude Code's status line
+// input via the sync job. A reset that has passed means the limit is fresh.
+const LIMIT_SEGMENTS = 20;
+
+function limits() {
+  const v = globalToken("lim:")?.v;
+  if (!v) return null;
+  const [pct, reset, weekPct, weekReset] = v.split("/").map(Number);
+  const now = nowSecs();
+  return {
+    pct: reset > now ? pct : 0, reset, fresh: !(reset > now),
+    weekPct: weekReset > now ? weekPct : 0,
+  };
+}
+
+const limitColor = (pct) => (pct >= 90 ? RED : pct >= 70 ? ORANGE : GREEN);
+
+function limitCard() {
+  const lim = () => limits();
+  const segs = [];
+  for (let i = 0; i < LIMIT_SEGMENTS; i += 1) {
+    segs.push(
+      Capsule()
+        .fill(() => {
+          const l = lim();
+          return l && (i + 0.5) * (100 / LIMIT_SEGMENTS) <= l.pct ? limitColor(l.pct) : "#7f7f7f33";
+        })
+        .frame({ maxWidth: "infinity", height: 4 })
+    );
+  }
+  return VStack({ spacing: 6 }, [
+    HStack({ spacing: 6 }, [
+      Image("gauge.with.needle").font(11).color(() => limitColor(lim()?.pct ?? 0)),
+      Text(() => t("limit")).font(12).weight("semibold").color("secondary"),
+      Spacer(),
+      Text(() => (lim() ? lim().pct + "%" : "")).font(12).weight("bold").color(() => limitColor(lim()?.pct ?? 0)),
+    ]),
+    HStack({ spacing: 2 }, segs),
+    HStack({ spacing: 6 }, [
+      Text(() => {
+        const l = lim();
+        if (!l) return "";
+        return l.fresh ? t("resetDone") : t("resets")(clockTime(l.reset), duration(l.reset - nowSecs()));
+      }).font(11).color("tertiary").lineLimit(1).truncation("tail"),
+      Spacer({ minLength: 4 }),
+      Text(() => (lim() ? t("week") + " " + lim().weekPct + "%" : "")).font(11).color("tertiary").fixedSize(),
+    ]),
+  ])
+    .padding(10)
+    .background("#7f7f7f1a")
+    .cornerRadius(10)
+    .paddingHorizontal(4)
+    .paddingBottom(6)
+    .frame(() => ({ maxWidth: "infinity", height: lim() ? 84 : 0 }))
+    .opacity(() => (lim() ? 1 : 0))
+    .contextMenu(languageMenu());
+}
 
 // --- views -------------------------------------------------------------------------
 function stateIcon(st) {
@@ -215,7 +353,7 @@ function stateIcon(st) {
   ]).frame({ width: 16, height: 16 });
 }
 
-// Background agents as segments: "12/16" from last-prompt-sync.py via
+// Background agents as segments: "12/16" from the sync job via
 // `cmux set-progress`, drawn as 16 dashes with 12 lit in the spinner colours.
 const MAX_SEGMENTS = 24;
 
@@ -242,22 +380,22 @@ function progressSegments(w) {
 }
 
 // One tab under its workspace: indented, smaller, with that tab's own agent state.
-function tabState(w, t) {
-  const agent = (w?.agents ?? []).find((a) => a.panelId === t?.id);
+function tabState(w, tab) {
+  const agent = (w?.agents ?? []).find((a) => a.panelId === tab?.id);
   if (agent?.status === "needs_input") return { kind: "needs", since: secs(agent.sinceEpoch) };
   if (agent?.status === "working") return { kind: "working", since: secs(agent.sinceEpoch) };
-  if (t?.hasUnread) return { kind: "unread", since: secs(t.latestAt) };
-  return { kind: agent ? "done" : "none", since: secs(t?.latestAt) };
+  if (tab?.hasUnread) return { kind: "unread", since: secs(tab.latestAt) };
+  return { kind: agent ? "done" : "none", since: secs(tab?.latestAt) };
 }
 
 function tabRow(entry) {
   const w = () => (data.workspaces() ?? []).find((x) => x.id === entry.wsId);
-  const t = () => (w()?.tabs ?? []).find((x) => x.id === entry.tabId);
-  const st = () => tabState(w(), t());
-  const isCurrent = () => isSelected(w()) && !!t()?.focused;
+  const tab = () => (w()?.tabs ?? []).find((x) => x.id === entry.tabId);
+  const st = () => tabState(w(), tab());
+  const isCurrent = () => isSelected(w()) && !!tab()?.focused;
   return HStack({ spacing: 8 }, [
     Rectangle().fill("#7f7f7f40").frame({ width: 1, height: 14 }),
-    Text(() => cleanTitle(t()?.title))
+    Text(() => cleanTitle(tab()?.title))
       .font(12)
       .weight(() => (st().kind === "unread" ? "semibold" : "regular"))
       .lineLimit(1)
@@ -281,7 +419,7 @@ function tabRow(entry) {
     .fixed()
     .onTap(() => {
       selectWorkspace(w()?.id);
-      if (t()?.surfaceId) cmux("surface.focus", { surface_id: t().surfaceId, workspace_id: w().id });
+      if (tab()?.surfaceId) cmux("surface.focus", { surface_id: tab().surfaceId, workspace_id: w().id });
     });
 }
 
@@ -299,14 +437,14 @@ function openHereMenu(w) {
   // Menu items can't be hidden (no conditional views), so the preview item
   // is always there and says when there is no server to preview.
   const port = () => (w()?.ports ?? [])[0];
-  return Menu("Відкрити тут", [
-    Button("Claude в окремій гілці (worktree)", newTerminal("claude -w")),
-    Button("Ще один Claude", newTerminal("claude")),
+  return Menu(() => t("openHere"), [
+    Button(() => t("worktree"), newTerminal("claude -w")),
+    Button(() => t("anotherClaude"), newTerminal("claude")),
     Divider(),
-    Button(() => (port() ? "Прев'ю localhost:" + port() + " у Dock" : "Прев'ю сайту (сервер не запущено)"), () => {
+    Button(() => (port() ? t("preview")(port()) : t("noServer")), () => {
       if (port()) cmux("surface.create", { workspace_id: w().id, type: "browser", placement: "dock", url: "http://localhost:" + port() });
     }),
-    Button("Симулятор iOS", () => cmux("surface.create", { workspace_id: w().id, type: "simulator", focus: true })),
+    Button(() => t("simulator"), () => cmux("surface.create", { workspace_id: w().id, type: "simulator", focus: true })),
   ]);
 }
 
@@ -321,15 +459,15 @@ function workspaceMenu(w) {
   return [
     openHereMenu(w),
     Divider(),
-    Button(() => (isAsleep(w()) ? "Розбудити" : "Приспати (у «Сплять»)"), () => setAsleep(w(), !isAsleep(w()))),
-    Button("Rename", () => setEditingId(w().id)),
-    Button(() => (w()?.pinned ? "Unpin" : "Pin"), () =>
+    Button(() => (isAsleep(w()) ? t("wake") : t("sleep")), () => setAsleep(w(), !isAsleep(w()))),
+    Button(() => t("rename"), () => setEditingId(w().id)),
+    Button(() => (w()?.pinned ? t("unpin") : t("pin")), () =>
       cmux("workspace.action", { action: w()?.pinned ? "unpin" : "pin", workspace_id: w().id })),
-    Button(() => (w()?.unread > 0 ? "Mark as Read" : "Mark as Unread"), () =>
+    Button(() => (w()?.unread > 0 ? t("markRead") : t("markUnread")), () =>
       cmux("workspace.action", { action: w()?.unread > 0 ? "mark_read" : "mark_unread", workspace_id: w().id })),
     Divider(),
-    Button("Close Others", act("close_others")).destructive(),
-    Button("Close", () => closeWorkspace(w().id)).destructive(),
+    Button(() => t("closeOthers"), act("close_others")).destructive(),
+    Button(() => t("close"), () => closeWorkspace(w().id)).destructive(),
   ];
 }
 
@@ -339,27 +477,27 @@ function workspaceRow(w) {
   const st = () => agentState(w());
   return ZStack({ alignment: "trailing" }, [
     VStack({ spacing: 4 }, [
-    HStack({ spacing: 8 }, [
-      Text(() => cleanTitle(workspaceTitle(w())))
-        .font(13)
-        .weight(() => (st().kind === "unread" ? "semibold" : "regular"))
-        .lineLimit(1)
-        .truncation("tail")
-        .marquee()
-        .color(() => (st().kind === "inactive" && !isSelected(w()) ? "tertiary" : "primary")),
-      Spacer({ minLength: 0 }),
       HStack({ spacing: 8 }, [
-        Text(() => w()?.progress?.label ?? ago(st().since))
-          .font(12)
-          .color(() => (st().kind === "needs" ? ORANGE : (st().kind === "unread" ? BLUE : "secondary"))),
-        stateIcon(st),
+        Text(() => cleanTitle(workspaceTitle(w())))
+          .font(13)
+          .weight(() => (st().kind === "unread" ? "semibold" : "regular"))
+          .lineLimit(1)
+          .truncation("tail")
+          .marquee()
+          .color(() => (st().kind === "inactive" && !isSelected(w()) ? "tertiary" : "primary")),
+        Spacer({ minLength: 0 }),
+        HStack({ spacing: 8 }, [
+          Text(() => w()?.progress?.label ?? ago(st().since))
+            .font(12)
+            .color(() => (st().kind === "needs" ? ORANGE : (st().kind === "unread" ? BLUE : "secondary"))),
+          stateIcon(st),
+        ])
+          .fixedSize()
+          .layoutPriority(2)
+          .hideOnHover(),
       ])
-        .fixedSize()
-        .layoutPriority(2)
-        .hideOnHover(),
-    ])
-      .frame({ maxWidth: "infinity" }),
-    progressSegments(w),
+        .frame({ maxWidth: "infinity" }),
+      progressSegments(w),
     ]),
     Image("xmark")
       .font(9).weight("semibold").color("secondary")
@@ -383,9 +521,9 @@ function workspaceRow(w) {
 function workspaceEditRow(w) {
   return HStack({ spacing: 8 }, [
     TextField(() => w()?.title ?? "", {
-      placeholder: "Workspace name",
-      onSubmit: (t) => {
-        const title = (t ?? "").trim();
+      placeholder: t("wsName"),
+      onSubmit: (text) => {
+        const title = (text ?? "").trim();
         cmux("workspace.action", title
           ? { action: "rename", workspace_id: w().id, title }
           : { action: "clear_name", workspace_id: w().id });
@@ -408,7 +546,7 @@ function sectionHeader(id) {
   return HStack({ spacing: 6 }, [
     HStack({ spacing: 5 }, [
       Image(s.icon).font(10).color(s.color),
-      Text(s.title).font(12).weight("semibold").color(s.color),
+      Text(() => t(id)).font(12).weight("semibold").color(s.color),
       Text(() => String(sectionCount(id))).font(11).weight("bold").color(s.color).opacity(0.7),
     ])
       .paddingHorizontal(9)
@@ -429,11 +567,12 @@ function sectionHeader(id) {
     .frame({ maxWidth: "infinity" })
     .fixed()
     .cursor("pointer")
-    .onTap(() => toggleSection(id));
+    .onTap(() => toggleSection(id))
+    .contextMenu(languageMenu());
 }
 
 // Sections are computed from state, so the only drop that means anything is
-// into «Сплять» (park it) or out of it (wake it). Anything else springs back.
+// into Sleeping (park it) or out of it (wake it). Anything else springs back.
 function handleMove(id, index) {
   const entries = flatEntries().filter((e) => e.id !== id);
   let target = SECTIONS[0].id;
@@ -449,6 +588,7 @@ function handleMove(id, index) {
 // --- root --------------------------------------------------------------------------
 sidebar(() =>
   VStack({ spacing: 2 }, [
+    limitCard(),
     Reorderable(
       { items: flatEntries, key: (e) => e.id, spacing: 2, onMove: handleMove },
       (e) => {

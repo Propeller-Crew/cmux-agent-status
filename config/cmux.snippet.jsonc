@@ -8,14 +8,21 @@
   //       defaults write com.cmuxterm.app sidebarMaterial -string sidebar
   "sidebarAppearance": { "tintOpacity": 0.3, "lightModeTintColor": "#FFFFFF", "darkModeTintColor": "#000000" },
 
-  // Tab strip: bigger titles and a "Claude" button that opens a Claude tab in this project.
+  // Tab strip: bigger titles, a Claude button and a "Claude on a new branch" button
+  // (claude -w: its own git worktree, so parallel Claudes don't overwrite each other).
+  // icons/claude.png is cmux's own Claude icon, extracted by install.sh.
   "surfaceTabBar": { "fontSize": 12.5 },
   "actions": {
-    "claude-new-tab": { "type": "agent", "agent": "claude", "title": "Claude", "target": "newTabInCurrentPane", "palette": true }
+    "claude-new-tab": { "type": "agent", "agent": "claude", "title": "Claude", "target": "newTabInCurrentPane", "palette": true },
+    "claude-worktree-tab": { "type": "agent", "agent": "claude", "args": "-w", "title": "Claude on a new branch", "target": "newTabInCurrentPane", "palette": true }
   },
   "ui": {
     "surfaceTabBar": {
-      "buttons": [{ "action": "claude-new-tab", "title": "Claude" }, "cmux.newTerminal", "cmux.newBrowser", "cmux.splitRight"]
+      "buttons": [
+        { "action": "claude-new-tab", "title": "Claude", "icon": { "type": "image", "path": "./icons/claude.png" } },
+        { "action": "claude-worktree-tab", "title": "Claude on a new branch", "icon": { "type": "symbol", "name": "arrow.triangle.branch" } },
+        "cmux.newTerminal", "cmux.newBrowser", "cmux.splitRight"
+      ]
     }
   }
 }

@@ -11,6 +11,9 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 mkdir -p "$CMUX_DIR/sidebars" "$HOME/Library/LaunchAgents"
 ln -sf "$REPO/sidebars/agent-status.js" "$CMUX_DIR/sidebars/agent-status.js"
 ln -sf "$REPO/scripts/last-prompt-sync.py" "$CMUX_DIR/last-prompt-sync.py"
+mkdir -p "$CMUX_DIR/icons"
+swift "$REPO/scripts/extract-claude-icon.swift" "$CMUX_DIR/icons/claude.png" \
+  || echo "Claude icon not extracted (needs Xcode command line tools); the tab-bar button falls back to text."
 
 sed "s#__HOME__#$HOME#g" "$REPO/launchd/$LABEL.plist" > "$PLIST"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true

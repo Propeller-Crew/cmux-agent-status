@@ -10,7 +10,10 @@ For every cmux workspace this writes into its description:
   agent_lifecycle = backgroundWorkPending while a background agent wrote to its
   transcript in the last 2 min;
 - " · zz@<epoch>" is set and cleared by the sidebar (you parked the tab in
-  "Sleeping"); this script only keeps it.
+  "Sleeping"); this script only keeps it;
+- on one workspace only, account-wide data: " · lim:<5h %>/<5h reset>/<week %>/<week reset>"
+  (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
+  line writes) and " · lang:uk|en" (the sidebar's language, set from the sidebar).
 Descriptions that aren't in this format are left alone.
 
 While a batch of background agents runs, the workspace also gets a "done/total"
@@ -29,8 +32,9 @@ from datetime import datetime
 
 CMUX = "/Applications/cmux.app/Contents/Resources/bin/cmux"
 CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
-OURS = re.compile(r"^(last prompt @\d+)?( · bg)?( · )?(zz@\d+)?$")
-SLEEP = re.compile(r"zz@\d+")
+# Description tokens, joined with " · ". A description with anything else is someone's own.
+TOKEN = re.compile(r"^(last prompt @\d+|bg|zz@\d+|lim:[\d/]+|lang:(uk|en))$")
+RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 TAIL_BYTES = 4 * 1024 * 1024
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
 
@@ -170,6 +174,19 @@ def busy_in_background(session, children, commands, listening):
     return False
 
 
+def rate_limit_token():
+    """"lim:<5h %>/<5h reset>/<week %>/<week reset>" from the status line's last known limits."""
+    try:
+        with open(RATE_LIMITS) as f:
+            rl = json.load(f)
+        five, week = rl.get("five_hour") or {}, rl.get("seven_day") or {}
+        values = [five.get("used_percentage"), five.get("resets_at"),
+                  week.get("used_percentage"), week.get("resets_at")]
+        return "lim:" + "/".join(str(round(v or 0)) for v in values)
+    except (OSError, ValueError):
+        return None
+
+
 def main():
     try:
         with open(CACHE) as f:
@@ -208,14 +225,29 @@ def main():
             run(CMUX, "clear-progress", "--workspace", ws)
             shown.pop(ws, None)
 
-    for w in cmux_json("workspace", "list", "--json").get("workspaces", []):
+    workspaces = cmux_json("workspace", "list", "--json").get("workspaces", [])
+    ours = [w for w in workspaces
+            if all(TOKEN.match(p) for p in (w.get("description") or "").split(" · ") if p)]
+    # Account-wide tokens (usage limit, sidebar language) ride on one workspace: the first of ours.
+    owner = ours[0]["id"] if ours else None
+    limit = rate_limit_token()
+    lang = next((p for w in ours for p in (w.get("description") or "").split(" · ")
+                 if p.startswith("lang:")), None)
+
+    for w in ours:
         at = latest.get(w["id"])
         current = w.get("description") or ""
-        if not at or (current and not OURS.match(current)):
+        if not at and w["id"] != owner:
             continue
-        sleep = SLEEP.search(current)
-        wanted = " · ".join(filter(None, [f"last prompt @{at}", "bg" if w["id"] in busy else "",
-                                          sleep.group(0) if sleep else ""]))
+        sleep = next((p for p in current.split(" · ") if p.startswith("zz@")), None)
+        is_owner = w["id"] == owner
+        wanted = " · ".join(filter(None, [
+            f"last prompt @{at}" if at else None,
+            "bg" if w["id"] in busy else None,
+            sleep,
+            limit if is_owner else None,
+            lang if is_owner else None,
+        ]))
         if current != wanted:
             run(CMUX, "workspace-action", "--workspace", w["id"],
                 "--action", "set-description", "--description", wanted)
