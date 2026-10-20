@@ -104,6 +104,10 @@ Click the card or a dot to flip pages.
 <td width="50%" align="center" valign="top"><br><img src="docs/media/features/keys.gif" alt="Cmd numbers appear on the rows and follow them when a row changes section" width="92%"><br><br><b>Cmd+1…9 follow the sidebar</b><br><sub>Cmd+1 is always the top row</sub><br><br></td>
 <td width="50%" align="center" valign="top"><br><img src="docs/media/features/lang.gif" alt="Right-click a section header and pick Українська; the labels switch" width="92%"><br><br><b>English or Ukrainian</b><br><sub>Right-click a header to switch</sub><br><br></td>
 </tr>
+<tr>
+<td width="50%" align="center" valign="top"><br><img src="docs/media/features/update.gif" alt="A New version chip appears above the card; clicking Update runs update.sh in a new tab" width="92%"><br><br><b>New version, one click</b><br><sub>A chip when a release is out; it runs update.sh in a tab</sub><br><br></td>
+<td width="50%" align="center" valign="top"><br><img src="docs/media/features/indicator.gif" alt="Right-click the Working header, Working indicator, Pulse; then Braille; the working rows change" width="92%"><br><br><b>Pick the working indicator</b><br><sub>Three dots, colour, pulse or braille</sub><br><br></td>
+</tr>
 </table>
 
 <details>
@@ -115,6 +119,7 @@ Click the card or a dot to flip pages.
 - **Open here**: Claude on its own git worktree, a second Claude, the local site in the Dock, an iOS simulator.
 - **Cmd+1…9**: cmux's own workspace order is kept in step with the sections, so the numbers move as workspaces change section.
 - **Language** follows macOS; switch with right-click on the activity card or any section header.
+- **New version**: once a day the sync job checks for a newer release; nothing updates on its own (see [Updating](#updating)).
 - **Working indicator**: three dots by default; the same right-click → **Working indicator** offers a colour-changing icon, a pulse or a braille spinner.
 
 </details>
@@ -211,7 +216,7 @@ Everything in `docs/media` is drawn from [`docs/media/src/scene.html`](docs/medi
 
 ```sh
 cd docs/media/src && npm ci
-node render.mjs stills   # hero.png, social-preview.png, window.png, cards.png, octopus.gif
+node render.mjs stills   # hero.png, social-preview.png, window.png, cards.png, update-chip.png, octopus.gif
 node render.mjs video    # demo.mp4 and demo.gif
 node render.mjs social   # out/demo-vertical.mp4 (9:16) and out/poster.png (4:5)
 node render.mjs features         # features/*.gif, one loop per feature
