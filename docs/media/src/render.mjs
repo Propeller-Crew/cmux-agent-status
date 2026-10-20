@@ -1,5 +1,5 @@
 // Renders docs/media from scene.html:
-//   node render.mjs stills   hero.png, window.png, cards.png, octopus.gif
+//   node render.mjs stills   hero.png, social-preview.png, window.png, cards.png, update-chip.png, octopus.gif
 //   node render.mjs video    demo.mp4 (16:9) and demo.gif for the README
 //   node render.mjs social   out/demo-vertical.mp4 (9:16), out/poster.png (4:5)
 //   node render.mjs features features/*.gif, one short loop per README feature
@@ -71,6 +71,7 @@ async function stills(browser) {
   // Plain product shots, without the marketing style around them.
   await still(browser, "window&theme=plain", join(MEDIA, "window.png"), 2, true);
   await still(browser, "cards&theme=plain", join(MEDIA, "cards.png"), 2, true);
+  await still(browser, "chip&theme=plain", join(MEDIA, "update-chip.png"));
   // Octopus: four ticks cover every mood's loop (idle has four frames).
   const dir = join(OUT, "octo");
   await frames(browser, "mode=octo", 4, 1, dir, 1, false);
@@ -131,8 +132,10 @@ async function loop(browser, query, gif) {
     await page.screenshot({ path: join(fdir, String(i).padStart(5, "0") + ".png") });
   }
   await page.close();
+  // 64 colours: the glass sidebar's soft gradient made 96 cost a quarter more per loop,
+  // and 64 looks the same.
   ffmpeg("-framerate", String(FEAT_FPS), "-i", join(fdir, "%05d.png"), "-vf",
-    "split[a][b];[a]palettegen=stats_mode=full:max_colors=96[p];[b][p]paletteuse=dither=none:diff_mode=rectangle", "-loop", "0", gif);
+    "split[a][b];[a]palettegen=stats_mode=full:max_colors=64[p];[b][p]paletteuse=dither=none:diff_mode=rectangle", "-loop", "0", gif);
   console.log(gif, size(gif));
 }
 

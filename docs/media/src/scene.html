@@ -33,7 +33,13 @@
   /* --- window ------------------------------------------------------------------ */
   .win { position: absolute; display: flex; border-radius: 12px; overflow: hidden;
          box-shadow: 0 0 0 1px #ffffff1f, 0 40px 120px -20px #000000d0, 0 0 80px -30px #5b8cff80; transform-origin: 0 0; }
-  .sb { position: relative; width: 252px; background: #1c1c1f; flex: none; color: var(--ink); }
+  /* Glass: cmux's sidebar material shows the desktop behind the window, blurred, under
+     a dark tint; here the desktop is a soft wallpaper of its own. The terminal stays solid. */
+  .sb { position: relative; width: 252px; flex: none; color: var(--ink);
+        background: linear-gradient(#323236e0, #2e2e32e6),
+          radial-gradient(75% 38% at 10% 6%, #4f7dff, transparent 72%),
+          radial-gradient(70% 34% at 95% 42%, #9a5cd6, transparent 72%),
+          radial-gradient(90% 40% at 25% 98%, #e8873a, transparent 72%), #3b3b42; }
   .sb.solo { border-radius: 14px; box-shadow: 0 0 0 1px #ffffff1f, 0 40px 120px -20px #000000d0, 0 0 90px -30px #5b8cff90; position: absolute; transform-origin: 0 0; overflow: hidden; }
   .sb-top { position: absolute; left: 0; right: 0; top: 0; height: 34px; display: flex; align-items: center; padding: 0 12px 0 14px; gap: 8px; }
   .light { width: 12px; height: 12px; border-radius: 50%; }
@@ -44,8 +50,8 @@
   .hdr.first { padding-top: 4px; }
   .pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 11px; font-size: 12px; font-weight: 600; line-height: 14px; }
   .pill svg { width: 10px; height: 10px; }
-  .pill .n { font-size: 11px; font-weight: 700; opacity: .7; }
-  .chev { margin-left: auto; width: 14px; height: 14px; color: var(--ink3); margin-top: 4px; }
+  .pill .n { font-size: 11px; font-weight: 700; }
+  .chev { margin-left: auto; width: 14px; height: 14px; color: var(--ink2); margin-top: 4px; }
   .row { height: 30px; padding: 6px 10px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
   .row.prog { height: 37px; }
   .row .line { display: flex; align-items: center; gap: 8px; }
@@ -58,7 +64,7 @@
   .tab { height: 22px; padding: 3px 10px 3px 18px; display: flex; align-items: center; gap: 8px; border-radius: 6px; }
   .tab .bar { width: 1px; height: 14px; background: #7f7f7f40; }
   .tab .t { font-size: 12px; color: var(--ink2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tab .ago { font-size: 11px; color: var(--ink3); }
+  .tab .ago { font-size: 11px; color: var(--ink2); }
   .key { font: 600 11px var(--sans); color: var(--ink); background: #ffffff1f; border: 1px solid #ffffff33; box-shadow: 0 1px 0 #ffffff26;
          border-radius: 5px; padding: 0 5px; line-height: 16px; white-space: nowrap; }
 
@@ -66,7 +72,7 @@
   .chip .t { font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chip .ago { font-size: 11px; color: var(--ink2); }
   .chip .paste { font-size: 11px; font-weight: 600; color: var(--blue); }
-  .card { position: absolute; left: 8px; right: 8px; height: 102px; border-radius: 22px; background: #141418; border: 1px solid #FFFFFF14; padding: 14px 16px; }
+  .card { position: absolute; left: 8px; right: 8px; height: 102px; border-radius: 22px; background: #26262ab8; border: 1px solid #7f7f7f26; padding: 14px 16px; }
   .card .top { display: flex; gap: 10px; align-items: center; height: 58px; }
   .pages { position: relative; flex: 1; height: 58px; }
   .page { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
@@ -80,10 +86,10 @@
   .foot svg { width: 14px; height: 14px; }
 
   /* --- terminal ----------------------------------------------------------------- */
-  .term { position: relative; flex: 1; background: #232327; border-left: 1px solid #00000080; }
+  .term { position: relative; flex: 1; background: #262628; border-left: 1px solid #00000080; }
   .tabs { height: 34px; display: flex; align-items: flex-end; gap: 2px; padding: 0 10px; border-bottom: 1px solid #ffffff12; background: #1c1c1f; }
   .ttab { height: 28px; padding: 0 14px; display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink2); border-radius: 7px 7px 0 0; max-width: 220px; white-space: nowrap; }
-  .ttab.on { background: #232327; color: var(--ink); }
+  .ttab.on { background: #262628; color: var(--ink); }
   .ttab .claude { color: #D97757; font-size: 13px; }
   .tbody { padding: 16px 22px 0 34px; font: 12.5px/1.62 var(--mono); color: #d8d8dc; white-space: pre-wrap; }
   .tbody .dim { font: inherit; color: #ffffff60; } .tbody .acc { color: #D97757; } .tbody .grn { color: #8bd5a0; } .tbody .usr { color: #fff; font-weight: 600; }
@@ -134,7 +140,7 @@
 // Constants copied from sidebars/agent-status.js
 const C = { ORANGE: "#F5A524", BLUE: "#4C9EEB", VIOLET: "#9B7BFF", GREEN: "#34C759", RED: "#FF453A", GRAY: "#8E8E93", TEAL: "#5AC8FA" };
 const SPIN = ["#5B8CFF", "#8B5CF6", "#EC4899", "#F59E0B", "#14B8A6"];
-const H = { HEADER_FIRST: 30, HEADER: 40, ROW: 30, ROW_PROGRESS: 37, TAB: 22, GAP: 2, CARD: 108, DL: 40 };
+const H = { HEADER_FIRST: 30, HEADER: 40, ROW: 30, ROW_PROGRESS: 37, TAB: 22, GAP: 2, CARD: 108, DL: 40, UPD: 40 };
 const SECTIONS = [
   { id: "needs", label: "Needs you", color: C.ORANGE, icon: "hand" },
   { id: "unread", label: "New", color: C.BLUE, icon: "sparkles" },
@@ -165,8 +171,9 @@ const I = {
   },
   record: `<svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10" fill="none" stroke="${C.ORANGE}" stroke-width="2.2"/><circle cx="12" cy="12" r="5" fill="${C.ORANGE}"/></svg>`,
   checkFill: `<svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="11" fill="${C.BLUE}"/><path d="m7 12.3 3.2 3.2L17 8.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  check: '<svg viewBox="0 0 24 24" width="11" height="11"><path d="M20 6 9 17l-5-5" fill="none" stroke="rgba(255,255,255,.32)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  moon: '<svg viewBox="0 0 24 24" width="10" height="10"><path fill="rgba(255,255,255,.3)" d="M20 15A9 9 0 1 1 9 3.5 7.5 7.5 0 0 0 20 15z"/></svg>',
+  check: '<svg viewBox="0 0 24 24" width="11" height="11"><path d="M20 6 9 17l-5-5" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" width="10" height="10"><path fill="rgba(255,255,255,.55)" d="M20 15A9 9 0 1 1 9 3.5 7.5 7.5 0 0 0 20 15z"/></svg>',
+  arrowDown: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="${C.BLUE}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 7v9m-4-4 4 4 4-4"/></svg>`,
   photo: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="${C.BLUE}" stroke-width="2.2" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="16" rx="3"/><path d="m3 18 5.5-6 4 4 3-3 5.5 5"/><circle cx="16" cy="8.8" r="1.6" fill="${C.BLUE}" stroke="none"/></svg>`,
   sidebar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9.5 4v16"/></svg>',
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0"/></svg>',
@@ -201,7 +208,7 @@ function baseWorld() {
     page: 0, focusLeft: null,
     limit: { pct: 42, week: 18, at: "03:00", left: "2h 14m" },
     today: { prompts: 47, hours: "5.3", agents: 12, streak: 6 },
-    download: null, keys: 0,
+    download: null, update: null, keys: 0, spin: "dots",
   };
 }
 
@@ -234,8 +241,19 @@ function layout(w) {
 }
 
 // --- sidebar rendering --------------------------------------------------------------
-function stateIcon(state, t) {
-  if (state === "working") return I.spinner(t * 300, SPIN[Math.floor(t) % SPIN.length]);
+// The working indicator steps once a clock tick, like the sidebar's (it has no faster
+// timer): three dots by default, or the colour, pulse or braille one from the menu.
+const BRAILLE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+function working(t, spin = "dots") {
+  const k = Math.floor(t);
+  if (spin === "color") return I.spinner(0, SPIN[k % SPIN.length]);
+  if (spin === "pulse") return `<i style="display:block;width:8px;height:8px;border-radius:50%;background:${C.VIOLET};opacity:${k % 2 ? 0.3 : 1}"></i>`;
+  if (spin === "braille") return `<span style="font:13px/16px var(--mono);color:${C.VIOLET}">${BRAILLE[k % BRAILLE.length]}</span>`;
+  return `<span style="display:flex;gap:2px">${[0, 1, 2].map((i) => `<i style="display:block;width:4px;height:4px;border-radius:50%;background:${C.VIOLET};opacity:${k % 3 === i ? 1 : 0.25}"></i>`).join("")}</span>`;
+}
+
+function stateIcon(state, t, spin) {
+  if (state === "working") return working(t, spin);
   if (state === "needs") return I.record;
   if (state === "unread") return I.checkFill;
   if (state === "done") return I.check;
@@ -248,11 +266,13 @@ const UK = { needs: "Чекає на тебе", unread: "Нове", working: "В
 function entryHTML(e, w, t, keyIndex) {
   if (e.kind === "header") {
     const s = e.section, drop = w.dropOn === s.id, pulse = w.pulse?.id === s.id ? Math.sin(w.pulse.p * Math.PI) : 0;
-    return `<div class="hdr ${e.first ? "first" : ""}" style="${drop ? "background:#ffffff14;border-radius:8px" : ""}"><span class="pill" style="color:${s.color};background:${s.color}${drop ? "45" : "26"};transform:scale(${1 + 0.12 * pulse})">${I[s.icon]}${w.lang === "uk" ? UK[s.id] : s.label}<span class="n">${e.count}</span></span><span class="chev">${I.chev(s.id !== "inactive")}</span></div>`;
+    // The name and count are the text colour over the section colour, as in the sidebar.
+    const ink = (k) => `color-mix(in srgb, #fff ${k}%, ${s.color})`;
+    return `<div class="hdr ${e.first ? "first" : ""}" style="${drop ? "background:#ffffff14;border-radius:8px" : ""}"><span class="pill" style="color:${s.color};background:${s.color}${drop ? "55" : "33"};transform:scale(${1 + 0.12 * pulse})">${I[s.icon]}<span style="color:${ink(70)}">${w.lang === "uk" ? UK[s.id] : s.label}</span><span class="n" style="color:${ink(45)}">${e.count}</span></span><span class="chev">${I.chev(s.id !== "inactive")}</span></div>`;
   }
   if (e.kind === "tab") {
     const tb = e.tab;
-    return `<div class="tab" style="${tb.state === "unread" ? "background:#4C9EEB1c" : ""}"><span class="bar"></span><span class="t" style="${tb.state === "unread" ? "font-weight:600;color:var(--ink)" : ""}">${tb.title}</span><span class="ago">${ago(tb.ago)}</span><span class="ico16">${stateIcon(tb.state, t)}</span></div>`;
+    return `<div class="tab" style="${tb.state === "unread" ? "background:#4C9EEB1c" : ""}"><span class="bar"></span><span class="t" style="${tb.state === "unread" ? "font-weight:600;color:var(--ink)" : ""}">${tb.title}</span><span class="ago">${ago(tb.ago)}</span><span class="ico16">${stateIcon(tb.state, t, w.spin)}</span></div>`;
   }
   const r = e.row, sel = w.selected === e.id;
   if (w.confirm === e.id) {
@@ -272,7 +292,7 @@ function entryHTML(e, w, t, keyIndex) {
     segs += "</div>";
   }
   const right = keyIndex != null ? `<span class="key">⌘${keyIndex}</span>` : `<span class="ago" style="color:${agoColor}">${label}</span>`;
-  return `<div class="row ${r.progress ? "prog" : ""}" style="background:${bg}"><div class="line"><span class="t" style="${r.state === "unread" ? "font-weight:600" : ""}">${r.title}</span>${right}<span class="ico16">${stateIcon(r.state, t)}</span></div>${segs}</div>`;
+  return `<div class="row ${r.progress ? "prog" : ""}" style="background:${bg}"><div class="line"><span class="t" style="${r.state === "unread" ? "font-weight:600" : ""}">${r.title}</span>${right}<span class="ico16">${stateIcon(r.state, t, w.spin)}</span></div>${segs}</div>`;
 }
 
 function octoMood(w) {
@@ -366,10 +386,21 @@ function sidebar(w, t, height, trans, opts = {}) {
   }).join("")}</div></div><div class="dots">${[0, 1, 2, 3].map((i) => `<i style="${i === cur ? "background:#fff" : ""}"></i>`).join("")}</div>`;
   card.querySelector(".octo-slot").replaceWith(octoCanvas(octoMood(w), t * 1.6, 2.5));
   sb.appendChild(card);
+  if (w.update) {
+    const u = w.update;
+    const chip = document.createElement("div");
+    chip.className = "chip"; chip.dataset.chip = "upd";
+    chip.style.top = cardTop - (w.download ? H.DL : 0) - H.UPD + 6 + (1 - (u.in ?? 1)) * 16 + "px";
+    chip.style.opacity = (u.in ?? 1) * (u.out != null ? 1 - u.out : 1);
+    if (u.press) chip.style.background = `rgba(76,158,235,${0.12 + 0.25 * u.press})`;
+    const uk = w.lang === "uk";
+    chip.innerHTML = `${I.arrowDown}<span class="t">${uk ? "Нова версія" : "New version"} ${u.label}</span><span class="paste">${uk ? "Оновити" : "Update"}</span>`;
+    sb.appendChild(chip);
+  }
   if (w.download) {
     const d = w.download;
     const chip = document.createElement("div");
-    chip.className = "chip";
+    chip.className = "chip"; chip.dataset.chip = "dl";
     chip.style.top = cardTop - H.DL + 6 + (1 - (d.in ?? 1)) * 16 + "px";
     chip.style.opacity = (d.in ?? 1) * (d.out != null ? 1 - d.out : 1);
     if (d.press) chip.style.background = `rgba(76,158,235,${0.12 + 0.25 * d.press})`;
@@ -592,6 +623,23 @@ const SHORT = {
 <span class="acc">⏺</span> <b>Write</b>(Widget/LockScreen.swift)
 `,
 };
+
+const PANEL_MENU = ["Українська", "English", "-", { label: "Working indicator", sub: true }];
+const SPINNERS = [["color", "Colour"], ["pulse", "Pulse"], ["dots", "Three dots"], ["braille", "Braille ⠋⠙⠹"]];
+const spinMenu = (cur) => SPINNERS.map(([k, label]) => (k === cur ? "✓ " : "") + label);
+// update.sh's output, wrapped where the feature window's terminal wraps it.
+const UPDATE = `<span class="dim">$</span> sh ~/.config/cmux/update.sh
+Looking for a new version at http
+s://github.com/sahneo/cmux-claude
+-sidebar.git
+`;
+const UPDATED = `Updated: v0.2.0 -> v0.3.0
+  - Glass sidebar, solid terminal
+  - Working indicator: three dots
+  What's new: https://github.com/
+sahneo/cmux-claude-sidebar/releas
+es/tag/v0.3.0
+`;
 
 const rowY = (w, id) => 36 + layout(w).entries.find((e) => e.key === id).y;
 const cardY = (h) => h - 30 - H.CARD + 6;
@@ -844,6 +892,51 @@ const FEATS = {
     note("⌘1…9 follow the rows,<br>even when they move.", noteA(t, 3.3, 5.3), [".key"]);
   } },
 
+  update: { dur: 6.4, draw(t) {
+    const w = only(["copy", "pay"]);
+    w.selected = "copy";
+    w.termBody = SHORT.dl;
+    if (t >= 0.5 && t < 4.6) w.update = { label: "v0.3", in: easeOut(span(t, 0.5, 1.0)), press: t > 2.3 ? Math.sin(span(t, 2.3, 2.7) * Math.PI) : 0, out: t > 4.2 ? span(t, 4.2, 4.6) : null };
+    if (t >= 2.6) {
+      w.termTabs = [{ title: "Landing page copy", on: false }, { title: "update.sh", on: true, in: easeOut(span(t, 2.6, 2.9)), icon: '<span class="dim">$</span>' }];
+      w.termBody = UPDATE + (t >= 3.4 ? UPDATED : "");
+    }
+    const win = featWin(w, t, null, 620, 420);
+    const cy = cardY(420) - H.UPD + 17;
+    const p = track(t, [[0.2, 400, 330], [1.9, 216, cy], [2.5, 216, cy], [3.3, 420, 360]]);
+    p.t = t;
+    pointer(win, p, [2.35]);
+    shoot(win, { x: 0, y: 0, w: 560, h: 420 });
+    note("A new release is out?<br>One click updates.", noteA(t, 0.8, 2.6), ['[data-chip="upd"]']);
+    note("update.sh runs in a tab,<br>so you see what it does.", noteA(t, 3.0, 6.0), [".tbody"]);
+  } },
+
+  indicator: { dur: 7.4, draw(t) {
+    const w = only(["pay", "docs", "notes", "dash"]);
+    w.rows.notes.state = "working"; w.rows.notes.ago = 240;
+    w.spin = t >= 5.15 ? "braille" : t >= 2.15 ? "pulse" : "dots";
+    // The submenu reaches past the panel's edge, so the menus sit on a box around it.
+    const box = document.createElement("div");
+    box.style.cssText = "position:relative;width:252px;height:560px";
+    box.appendChild(sidebar(w, t, 560, null, { solo: true }));
+    // Right-click the Working header, then Working indicator > Pulse; again for Braille.
+    // Menu rows are 22 px under 5 px of padding, the divider 11 px: the indicator row's
+    // middle is 71 px below the menu's top, and the submenu's rows line up with it.
+    const hx = 40, hy = rowY(w, "h:working") + 14, my = hy + 2, iy = my + 71;
+    const pick = (at, item) => [[at - 1.6, hx, hy], [at - 1.4, hx, hy], [at - 1.0, 120, iy], [at - 0.7, 230, iy], [at - 0.4, 230, iy + item * 22], [at, 230, iy + item * 22]];
+    const p = track(t, [[0.1, 200, 330], ...pick(2.1, 1), [2.8, 220, 330], ...pick(5.1, 3), [5.8, 220, 330]]);
+    p.t = t;
+    for (const [at, item] of [[2.1, 1], [5.1, 3]]) {
+      if (t < at - 1.4 || t >= at) continue;
+      menu(box, PANEL_MENU, hx + 2, my, 150, t >= at - 0.9 ? 3 : -1);
+      if (t >= at - 0.8) menu(box, spinMenu(at < 3 ? "dots" : "pulse"), hx + 148, iy - 16, 118, t >= at - 0.4 ? item : -1);
+    }
+    pointer(box, p, [0.65, 2.05, 3.65, 5.05]);
+    shoot(box, SB_REGION());
+    const rows = ['[data-key="h:working"], [data-key="pay"], [data-key="docs"], [data-key="notes"]'];
+    note("Three dots, or a colour,<br>a pulse or braille.", Math.max(noteA(t, 2.3, 3.5), noteA(t, 5.3, 7.1)), rows);
+  } },
+
   lang: { dur: 5, draw(t) {
     const w = only(["pay", "copy", "mono", "notes", "dash"]);
     delete w.rows.mono.progress;
@@ -851,7 +944,7 @@ const FEATS = {
     const sb = sidebar(w, t, 560, null, { solo: true });
     const p = track(t, [[0.1, 200, 300], [0.8, 60, 52], [1.0, 60, 52], [1.6, 90, 73], [2.0, 90, 73], [2.7, 220, 300]]);
     p.t = t;
-    if (t >= 0.9 && t < 1.9) menu(sb, ["Українська", "English"], 62, 54, 130, t >= 1.45 ? 0 : -1);
+    if (t >= 0.9 && t < 1.9) menu(sb, PANEL_MENU, 62, 54, 160, t >= 1.45 ? 0 : -1);
     pointer(sb, p, [0.95, 1.85]);
     shoot(sb, SB_REGION());
     note("Right-click a header:<br>English or Українська.", noteA(t, 2.1, 4.7), [".pill"]);
@@ -1038,6 +1131,18 @@ function renderCards() {
     wrap.appendChild(sb);
     stage.appendChild(wrap);
   }
+}
+
+function renderChip() {
+  // The new-version chip above the card, for the README's Updating section.
+  const h = 186;
+  sizeStage(252, h - 22);
+  stage.className = "flat";
+  const w = { ...baseWorld(), update: { label: "v0.3" }, selected: "mono" };
+  const sb = sidebar(w, 0.2, h, null);
+  for (const sel of [".sb-top", ".list", ".foot"]) sb.querySelector(sel).remove();
+  sb.style.marginTop = "-6px";
+  stage.appendChild(sb);
 }
 
 function renderOcto(t) {
@@ -1399,6 +1504,7 @@ else if (MODE === "window") renderWindow();
 else if (MODE === "cards") renderCards();
 else if (MODE === "octo") renderOcto(0);
 else if (MODE === "poster") renderPoster();
+else if (MODE === "chip") renderChip();
 window.ready = true;
 </script>
 </body>
