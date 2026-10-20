@@ -376,11 +376,12 @@ const CARD_TEXT = "primary";
 const CARD_DIM = "secondary";
 const CARD_TRACK = "#7f7f7f40";
 // The card's own accents are mid-tones: the panel's bright green and orange fade out
-// on a light card, these keep about 3:1 on both.
-const CARD_GREEN = "#1F9D55";
-const CARD_ORANGE = "#CC7000";
+// on a light card (1.8:1), these keep at least 3:1 on the card in both themes
+// (measured against #E7E6E6 light and #2A2A2A dark).
+const CARD_GREEN = "#1A9450";
+const CARD_ORANGE = "#C26A00";
 const CARD_RED = "#E0453B";
-const CARD_VIOLET = "#8B6CF0";
+const CARD_VIOLET = "#8466EC";
 
 function limits() {
   const v = globalToken("lim:")?.v;
@@ -495,7 +496,7 @@ function segmentBar(fraction, color, count) {
 function limitPage() {
   const lim = () => limits();
   return VStack({ spacing: 5 }, [
-    HStack({ spacing: 6 }, [
+    HStack({ spacing: 5 }, [
       Text(() => (lim() ? lim().pct + "%" : "—")).font(22).weight("bold")
         .color(() => limitColor(lim()?.pct ?? 0)).fixedSize(),
       Text(() => t("limitShort")).font(10).color(CARD_DIM).fixedSize(),
@@ -592,7 +593,7 @@ function todayPage() {
       Spacer(),
       Text(() => (d()?.streak ? "🔥 " + t("streak")(d().streak) : "")).font(10).color(CARD_ORANGE).fixedSize(),
     ]),
-    HStack({ spacing: 10 }, [
+    HStack({ spacing: 8 }, [
       stat(() => String(d()?.prompts ?? 0), () => t("prompts")),
       stat(() => timeStat(d()?.minutes ?? 0).value, () => timeStat(d()?.minutes ?? 0).unit + " " + t("inClaude")),
       stat(() => String(d()?.agents ?? 0), () => t("agents")),
@@ -624,27 +625,31 @@ function pageDots() {
 function activityCard() {
   // The outer margin lives on a wrapper: in a JS sidebar the modifiers are props of
   // one node, not layers, so a second .paddingHorizontal would replace the first.
+  // 6 pt, like the list's wrapper: the card's edges line up with a row's background.
   return VStack({ spacing: 0 }, [activityCardBody()])
-    .paddingLeading(EDGE_LEADING)
-    .paddingTrailing(EDGE_TRAILING)
+    .paddingHorizontal(6)
     .paddingTop(6)
     .frame({ maxWidth: "infinity", height: CARD_H });
 }
 
 function activityCardBody() {
   return VStack({ spacing: 8 }, [
-    HStack({ spacing: 10 }, [
+    HStack({ spacing: 8 }, [
       octopus(),
+      // All four pages are laid out at once (the hidden ones only lose height), and
+      // their fixed-size labels add up to more than a sidebar's width: without
+      // minWidth 0 the widest page pushed the whole sidebar under the terminal pane,
+      // so the card and the rows ran into its right edge.
       VStack({ spacing: 0 }, [
         pageSlot("limit", limitPage()),
         pageSlot("focus", focusPage()),
         pageSlot("today", todayPage()),
         pageSlot("session", sessionPage()),
-      ]).frame({ maxWidth: "infinity" }),
+      ]).frame({ minWidth: 0, maxWidth: "infinity" }),
     ]),
     pageDots(),
   ])
-    .paddingHorizontal(16)
+    .paddingHorizontal(14)
     .paddingVertical(14)
     .background(CARD_BG)
     .borderColor("#7f7f7f26")
@@ -959,12 +964,6 @@ const ROW_PROGRESS_H = 37;
 const TAB_H = 22;
 const CARD_H = 108;
 const LIST_SPACING = 2;
-// cmux lays the sidebar out about 12 pt wider than it shows: its right edge runs
-// under the terminal pane. Rows and headers keep their content clear of that strip;
-// the card and the download chip start where a row's background does and add the
-// strip to their right margin, so they sit as far from either visible edge.
-const EDGE_LEADING = 6;
-const EDGE_TRAILING = 18;
 const SIDEBAR_CHROME = 82;   // title bar above the list, the footer buttons below it, and a few points of slack
                              // so rounding never makes the sidebar scroll (a scroll bar shows on its edge).
                              // At 66 the card's bottom 12 pt sat in cmux's fade above the footer buttons.
@@ -1065,8 +1064,7 @@ function downloadChip() {
     .contextMenu([Button(() => t("hide"), () => d() && hideDownload(d().at))]);
   // Wrapper for the margin (modifiers are props of one node, not layers).
   return VStack({ spacing: 0 }, [body])
-    .paddingLeading(EDGE_LEADING)
-    .paddingTrailing(EDGE_TRAILING)
+    .paddingHorizontal(6)
     .frame(() => ({ maxWidth: "infinity", height: d() ? DL_H : 0 }))
     .opacity(() => (d() ? 1 : 0));
 }
