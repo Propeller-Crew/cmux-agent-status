@@ -44,6 +44,11 @@ into the same terminal. cmux's own Agent Hibernation would do this, but it refus
 sessions (lifecycle_unknown, then process_scope_unsafe, 20.10.2026). Run with
 `--dry-run` to see what it would close and reopen without touching anything.
 
+When cmux misses the end of a Claude turn (its Stop hook record never lands, and the
+session stays "running", so the sidebar spins over an agent that's waiting for you), a
+session whose live Claude ended its turn more than 90 s ago with nothing queued is
+reported idle to cmux once (`set_agent_lifecycle … idle` on its socket).
+
 Runs from launchd every 15 s (launchd/com.propeller.cmux-last-prompt.plist); the window
 watcher (scripts/window-watch.swift) calls it with `--window <points>` on every resize.
 """
@@ -52,6 +57,7 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import time
@@ -75,6 +81,8 @@ IDLE_GAP = 300   # seconds between transcript entries still counted as time in t
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
 SLEEP_AFTER = 24 * 3600   # no prompt for this long: the sidebar's "Sleeping" (its INACTIVE_AFTER)
 WAKE_GRACE = 2 * 3600     # a session reopened here isn't closed again for this long
+STUCK_AFTER = 90          # a turn over this long while cmux still says "running": tell it idle
+CMUX_SOCKET = os.environ.get("CMUX_SOCKET_PATH") or os.path.expanduser("~/.local/state/cmux/cmux.sock")
 CLOSE_PER_RUN = 3         # sessions closed per run, so a restart doesn't type into thirty at once
 # Flags carried over when a closed session is reopened, and whether each takes a value.
 # The rest (a first prompt, --resume, --continue, --session-id) belongs to the first launch.
@@ -379,6 +387,76 @@ def close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dr
         woke.pop(ws)
 
 
+def turn_ended_at(path):
+    """When the transcript's last turn ended (its system/turn_duration entry), or None while
+    a turn runs or a prompt waits. Only the tail is read: what follows a turn's end is a few
+    metadata lines (titles, modes, summaries)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 65536))
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    if size > 65536:
+        lines = lines[1:]                  # the first one is cut
+    for raw in reversed(lines):
+        try:
+            entry = json.loads(raw)
+        except ValueError:
+            continue
+        kind = entry.get("type")
+        if kind == "system" and entry.get("subtype") == "turn_duration" and entry.get("timestamp"):
+            return datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00")).timestamp()
+        if kind in ("user", "assistant", "queue-operation") or str(kind).startswith("api-request"):
+            return None                    # a prompt, a reply, a queued message: not over
+    return None
+
+
+def unstick_running(sessions, children, commands, listening, cache, dry_run):
+    """cmux misses the end of a Claude turn now and then: the Stop hook runs and spools its
+    record, but no agent.hook.Stop reaches cmux's event log (27 of 148 turns, 19-20.10.2026,
+    with or without queued messages), so the session stays "running" and the sidebar spins
+    until the next prompt. A session cmux calls running whose live Claude ended its turn
+    STUCK_AFTER ago, with nothing queued and no background work, is reported idle once."""
+    now = time.time()
+    done = cache.setdefault("_unstuck", {})    # session → the turn end already reported
+    for s in sessions:
+        sid, pid = s.get("session_id"), s.get("pid")
+        ws, surface, path = s.get("workspace_id"), s.get("surface_id"), s.get("transcript_path")
+        if s.get("agent_lifecycle") != "running" or not (sid and ws and surface and path):
+            continue
+        if not pid or "claude" not in commands.get(pid, ""):
+            continue                           # no live Claude to vouch for
+        end = turn_ended_at(path)
+        if not end or now - end < STUCK_AFTER or done.get(sid) == end:
+            continue
+        if busy_in_background(s, children, commands, listening):
+            continue                           # it may pick up again by itself
+        if dry_run:
+            print(f"would report idle: session {sid[:8]}, turn ended {int(now - end)} s ago")
+            continue
+        try:
+            reply = cmux_socket(f"set_agent_lifecycle claude_code idle --tab={ws} --panel={surface}")
+        except OSError:
+            continue
+        if reply.startswith("OK"):
+            done[sid] = end
+    live = {s.get("session_id") for s in sessions}
+    for sid in [k for k in done if k not in live]:
+        done.pop(sid)
+
+
+def cmux_socket(line):
+    """One line to cmux's control socket (what `printf … | nc -U` does), its reply back."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(3)
+        sock.connect(CMUX_SOCKET)
+        sock.sendall(line.encode() + b"\n")
+        return sock.recv(4096).decode(errors="replace").strip()
+
+
 def rate_limit_token():
     """"lim:<5h %>/<5h reset>/<week %>/<week reset>" from the status line's last known limits."""
     try:
@@ -566,6 +644,7 @@ def main(dry_run=False):
                 "--action", "set-description", "--description", wanted)
 
     cache["_known"] = sorted(known & {w["id"] for w in ours})   # forget closed workspaces
+    unstick_running(sessions, children, commands, listening, cache, dry_run)
     close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dry_run)
     with open(CACHE, "w") as f:
         json.dump(cache, f)
