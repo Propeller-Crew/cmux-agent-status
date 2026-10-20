@@ -114,6 +114,7 @@ Click the card or a dot to flip pages.
 - **Open here**: Claude on its own git worktree, a second Claude, the local site in the Dock, an iOS simulator.
 - **Cmd+1…9**: cmux's own workspace order is kept in step with the sections, so the numbers move as workspaces change section.
 - **Language** follows macOS; switch with right-click on the activity card or any section header.
+- **Working indicator**: three dots by default; the same right-click → **Working indicator** offers a colour-changing icon, a pulse or a braille spinner.
 
 </details>
 

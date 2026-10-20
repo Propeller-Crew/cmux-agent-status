@@ -24,7 +24,9 @@ For every cmux workspace this writes into its description:
   " · win:<points>" (cmux's window height, so the sidebar can keep its card at the bottom;
   reported by the window watcher through `--window`, only carried over here),
   " · lim:<5h %>/<5h reset>/<week %>/<week reset>" (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
-  line writes), " · lang:uk|en" (the sidebar's language, set from the sidebar) and
+  line writes), " · lang:uk|en" (the sidebar's language, set from the sidebar),
+  " · spin:color|pulse|dots|braille" (how a working row shows it works, set from the
+  sidebar) and
   " · skin:normal|system1|system1-lite" (the sidebar's look, set from the sidebar or
   scripts/skin.sh; when it differs from the terminal's, this script runs
   `scripts/skin.sh --terminal-only` so the terminal follows the sidebar).
@@ -67,7 +69,7 @@ from urllib.parse import quote
 CMUX = "/Applications/cmux.app/Contents/Resources/bin/cmux"
 CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
-TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite))$")
+TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille))$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
 # What the watcher reported (window height, newest download). Kept apart from the cache:
@@ -597,6 +599,8 @@ def main(dry_run=False):
     cache["_lang"] = lang
     skin = carried(ours, "skin:") or cache.get("_skin")
     cache["_skin"] = skin
+    spin = carried(ours, "spin:") or cache.get("_spin")
+    cache["_spin"] = spin
     # Picked in the sidebar: the terminal follows (its Ghostty include and a reload-config).
     if skin and skin.split(":")[1] != terminal_skin() and os.path.exists(SKIN_SCRIPT):
         run(SKIN_SCRIPT, "--terminal-only", skin.split(":")[1])
@@ -638,6 +642,7 @@ def main(dry_run=False):
             seen if is_owner else None,
             lang if is_owner else None,
             skin if is_owner else None,
+            spin if is_owner else None,
         ]))
         if current != wanted:
             run(CMUX, "workspace-action", "--workspace", w["id"],
