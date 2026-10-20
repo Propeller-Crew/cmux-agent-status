@@ -369,9 +369,18 @@ function syncOrder() {
 const LIMIT_SEGMENTS = 16;
 const PAGES = ["limit", "focus", "today", "session"];
 const [page, setPage] = signal(1);
-const CARD_BG = "#141418";
-const CARD_TEXT = "#FFFFFF";
-const CARD_DIM = "#FFFFFF8C";
+// cmux hands a sidebar no theme value: the card follows light/dark the way the rows
+// do, through a material and the semantic text colours that cmux resolves per theme.
+const CARD_BG = "regularMaterial";
+const CARD_TEXT = "primary";
+const CARD_DIM = "secondary";
+const CARD_TRACK = "#7f7f7f40";
+// The card's own accents are mid-tones: the panel's bright green and orange fade out
+// on a light card, these keep about 3:1 on both.
+const CARD_GREEN = "#1F9D55";
+const CARD_ORANGE = "#CC7000";
+const CARD_RED = "#E0453B";
+const CARD_VIOLET = "#8B6CF0";
 
 function limits() {
   const v = globalToken("lim:")?.v;
@@ -396,7 +405,7 @@ function sessionStats() {
   return { title: cleanTitle(workspaceTitle(w)), prompts, minutes };
 }
 
-const limitColor = (pct) => (pct >= 90 ? RED : pct >= 70 ? ORANGE : GREEN);
+const limitColor = (pct) => (pct >= 90 ? CARD_RED : pct >= 70 ? CARD_ORANGE : CARD_GREEN);
 // Time as a bare number plus its unit, so the unit can sit in the small label and
 // three stats fit side by side: "7,2" over "год у Claude".
 function timeStat(min) {
@@ -476,7 +485,7 @@ function segmentBar(fraction, color, count) {
   for (let i = 0; i < count; i += 1) {
     segs.push(
       Capsule()
-        .fill(() => ((i + 0.5) / count <= fraction() ? color() : "#FFFFFF26"))
+        .fill(() => ((i + 0.5) / count <= fraction() ? color() : CARD_TRACK))
         .frame({ maxWidth: "infinity", height: 4 })
     );
   }
@@ -549,18 +558,18 @@ function focusPage() {
   return VStack({ spacing: 5 }, [
     HStack({ spacing: 6 }, [
       Text(() => (left() == null ? mmss(FOCUS_SECONDS) : mmss(left()))).font(22).weight("bold")
-        .color(() => (left() == null ? CARD_TEXT : VIOLET)).fixedSize(),
+        .color(() => (left() == null ? CARD_TEXT : CARD_VIOLET)).fixedSize(),
       Spacer({ minLength: 4 }),
       Text(() => (left() == null ? "▶ " + t("start") : "■ " + t("stop")))
-        .font(11).weight("semibold").color(CARD_TEXT)
+        .font(11).weight("semibold").color(() => (left() == null ? "#FFFFFF" : CARD_TEXT))
         .paddingHorizontal(10).paddingVertical(4)
-        .background(() => (left() == null ? VIOLET : "#FFFFFF26"))
+        .background(() => (left() == null ? VIOLET : CARD_TRACK))
         .cornerRadius(10)
         .fixedSize()
         .cursor("pointer")
         .onTap(() => setFocus(left() == null)),
     ]),
-    segmentBar(() => (left() == null ? 0 : 1 - left() / FOCUS_SECONDS), () => VIOLET, LIMIT_SEGMENTS),
+    segmentBar(() => (left() == null ? 0 : 1 - left() / FOCUS_SECONDS), () => CARD_VIOLET, LIMIT_SEGMENTS),
     Text(() => (left() == null ? t("focusIdle") : t("focus") + " · " + t("resets")(clockTime(focusStart() + FOCUS_SECONDS), duration(left()))))
       .font(10).color(CARD_DIM).lineLimit(1).truncation("tail"),
   ]);
@@ -581,7 +590,7 @@ function todayPage() {
     HStack({ spacing: 6 }, [
       Text(() => t("today")).font(11).weight("semibold").color(CARD_DIM).fixedSize(),
       Spacer(),
-      Text(() => (d()?.streak ? "🔥 " + t("streak")(d().streak) : "")).font(10).color(ORANGE).fixedSize(),
+      Text(() => (d()?.streak ? "🔥 " + t("streak")(d().streak) : "")).font(10).color(CARD_ORANGE).fixedSize(),
     ]),
     HStack({ spacing: 10 }, [
       stat(() => String(d()?.prompts ?? 0), () => t("prompts")),
@@ -605,7 +614,7 @@ function sessionPage() {
 function pageDots() {
   const dots = PAGES.map((_, i) =>
     Circle()
-      .fill(() => (page() === i ? CARD_TEXT : "#FFFFFF40"))
+      .fill(() => (page() === i ? CARD_TEXT : CARD_TRACK))
       .frame({ width: 5, height: 5 })
       .onTap(() => setPage(i))
   );
@@ -616,7 +625,8 @@ function activityCard() {
   // The outer margin lives on a wrapper: in a JS sidebar the modifiers are props of
   // one node, not layers, so a second .paddingHorizontal would replace the first.
   return VStack({ spacing: 0 }, [activityCardBody()])
-    .paddingHorizontal(8)
+    .paddingLeading(EDGE_LEADING)
+    .paddingTrailing(EDGE_TRAILING)
     .paddingTop(6)
     .frame({ maxWidth: "infinity", height: CARD_H });
 }
@@ -637,7 +647,7 @@ function activityCardBody() {
     .paddingHorizontal(16)
     .paddingVertical(14)
     .background(CARD_BG)
-    .borderColor("#FFFFFF14")
+    .borderColor("#7f7f7f26")
     .borderWidth(1)
     .cornerRadius(22)
     .frame({ maxWidth: "infinity" })
@@ -949,8 +959,15 @@ const ROW_PROGRESS_H = 37;
 const TAB_H = 22;
 const CARD_H = 108;
 const LIST_SPACING = 2;
-const SIDEBAR_CHROME = 66;   // title bar above the list, the footer buttons below it, and a few points of slack
-                             // so rounding never makes the sidebar scroll (a scroll bar shows on its edge)
+// cmux lays the sidebar out about 12 pt wider than it shows: its right edge runs
+// under the terminal pane. Rows and headers keep their content clear of that strip;
+// the card and the download chip start where a row's background does and add the
+// strip to their right margin, so they sit as far from either visible edge.
+const EDGE_LEADING = 6;
+const EDGE_TRAILING = 18;
+const SIDEBAR_CHROME = 82;   // title bar above the list, the footer buttons below it, and a few points of slack
+                             // so rounding never makes the sidebar scroll (a scroll bar shows on its edge).
+                             // At 66 the card's bottom 12 pt sat in cmux's fade above the footer buttons.
 
 function listHeight() {
   const entries = flatEntries();
@@ -1048,7 +1065,8 @@ function downloadChip() {
     .contextMenu([Button(() => t("hide"), () => d() && hideDownload(d().at))]);
   // Wrapper for the margin (modifiers are props of one node, not layers).
   return VStack({ spacing: 0 }, [body])
-    .paddingHorizontal(8)
+    .paddingLeading(EDGE_LEADING)
+    .paddingTrailing(EDGE_TRAILING)
     .frame(() => ({ maxWidth: "infinity", height: d() ? DL_H : 0 }))
     .opacity(() => (d() ? 1 : 0));
 }
