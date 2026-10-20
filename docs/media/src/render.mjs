@@ -3,11 +3,12 @@
 //   node render.mjs video    demo.mp4 (16:9) and demo.gif for the README
 //   node render.mjs social   out/demo-vertical.mp4 (9:16), out/poster.png (4:5)
 //   node render.mjs features features/*.gif, one short loop per README feature
+//   node render.mjs directions   out/directions/: design directions side by side (?theme=…)
 //   node render.mjs all
 // Needs ffmpeg on PATH and `npm ci` here (Playwright's Chromium).
 import { chromium } from "playwright";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -34,6 +35,7 @@ async function open(browser, query, dpr) {
   await page.addInitScript((o) => { window.__OCTO = o; }, octopus());
   await page.goto(SCENE + "?" + query);
   await page.waitForFunction(() => window.ready);
+  await page.evaluate(() => document.fonts.ready);
   const box = await page.evaluate(() => {
     const s = document.getElementById("stage");
     return { width: s.offsetWidth, height: s.offsetHeight };
@@ -138,6 +140,43 @@ async function fpeek(browser, name, t) {
   console.log(file);
 }
 
+// Design directions: banner, one feature tile and the poster per theme, plus a page
+// that shows them side by side → out/directions/
+//   node render.mjs directions [theme…]
+async function directions(browser, names) {
+  const dir = join(OUT, "directions");
+  mkdirSync(dir, { recursive: true });
+  const probe = await open(browser, "mode=hero", 1);
+  const themes = await probe.page.evaluate(() => window.THEMES);
+  await probe.page.close();
+  const shot = async (query, file, dpr) => {
+    const { page } = await open(browser, query, dpr);
+    await page.screenshot({ path: join(dir, file) });
+    await page.close();
+    console.log(join(dir, file));
+  };
+  for (const name of names.length ? names : Object.keys(themes)) {
+    await shot(`mode=hero&theme=${name}`, `${name}-banner.png`, 2);
+    await shot(`mode=feat&name=sections&t=2.2&theme=${name}`, `${name}-tile.png`, 2);
+    await shot(`mode=poster&theme=${name}`, `${name}-poster.png`, 1);
+  }
+  const rows = Object.entries(themes).map(([k, v], i) => `<section>
+    <h2><span>${String.fromCharCode(65 + i)}</span> ${v.label}</h2><p>${v.why}</p>
+    <div class="row"><img class="b" src="${k}-banner.png"><img class="t" src="${k}-tile.png"><img class="p" src="${k}-poster.png"></div></section>`).join("");
+  writeFileSync(join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><title>Design directions</title>
+<style>body{margin:0;padding:40px 48px;background:#f4f4f2;color:#111;font:16px/1.5 -apple-system,system-ui,sans-serif}
+h1{font-size:28px;margin:0 0 4px}section{margin:40px 0 0;padding-top:28px;border-top:1px solid #ccc}
+h2{font-size:22px;margin:0}h2 span{display:inline-block;width:30px;color:#888}p{margin:6px 0 16px;max-width:900px;color:#444}
+.row{display:flex;gap:16px;align-items:flex-start}.row img{display:block;box-shadow:0 0 0 1px #0002}
+.b{width:760px}.t{width:340px}.p{width:304px}</style>
+<h1>Claude sidebar: four design directions</h1><div style="color:#666">Banner 2:1 · feature tile · poster 4:5. The panel is the product UI and keeps its colours.</div>${rows}`);
+  const page = await browser.newPage({ viewport: { width: 1520, height: 900 } });
+  await page.goto(pathToFileURL(join(dir, "index.html")).href);
+  await page.screenshot({ path: join(dir, "compare.png"), fullPage: true });
+  await page.close();
+  console.log(join(dir, "compare.png"));
+}
+
 // One video frame, for checking a scene without rendering the whole clip:
 //   node render.mjs peek 16x9 12.5   → out/peek-16x9-12.5.png
 async function peek(browser, fmt, t) {
@@ -155,6 +194,7 @@ try {
   if (what === "peek") for (const t of process.argv.slice(4)) await peek(browser, process.argv[3], t);
   if (what === "fpeek") for (const t of process.argv.slice(4)) await fpeek(browser, process.argv[3], t);
   if (what === "features") await features(browser, process.argv.slice(3));
+  if (what === "directions") await directions(browser, process.argv.slice(3));
   if (what === "all") await features(browser, []);
   if (what === "stills" || what === "all") await stills(browser);
   if (what === "video" || what === "all") await video(browser);
