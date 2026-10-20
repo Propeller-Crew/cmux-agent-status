@@ -30,7 +30,7 @@ A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs
 
 <table>
 <tr>
-<td colspan="2" align="center"><br><img src="docs/media/features/sections.gif" alt="A row asks for permission and moves to Needs you; another finishes and moves to New" width="60%"><br><br><b>Sections by attention</b><br><sub>Needs you · New · Working · No task yet · Done · Sleeping</sub><br><br></td>
+<td colspan="2" align="center"><br><img src="docs/media/features/sections.gif" alt="A row asks for permission and jumps to the top, into Needs you" width="60%"><br><br><b>Sections by attention</b><br><sub>Needs you · New · Working · No task yet · Done · Sleeping</sub><br><br></td>
 </tr>
 <tr>
 <td width="50%" align="center" valign="top"><br><img src="docs/media/features/ago.gif" alt="Every row says 22h after a restart, then each shows its real time" width="92%"><br><br><b>Real “last time you wrote here”</b><br><sub>From Claude’s transcripts, survives restarts</sub><br><br></td>
@@ -117,24 +117,27 @@ Click the card or a dot to flip pages.
 
 </details>
 
-### A System 1 skin
+### Two looks
 
-The whole of cmux as a 1984 Macintosh (Susan Kare's): a dotted desktop, 1 pt black
-frames with hard shadows, pixel type and a 1-bit octopus around the panel's own coloured
-sections, and a 1-bit terminal with no glass. One command switches, no restart:
+<p align="center"><img src="docs/media/looks.png" alt="The panel twice, drawn by its own code: normal, dark glass with coloured sections; System 1, a 1984 Macintosh window with pixel type and a 1-bit octopus" width="72%"></p>
+
+Normal is glass and follows light or dark. System 1 turns the panel and the terminal into
+a 1984 Macintosh: a dotted desktop, hard shadows and pixel type, with the sections keeping
+their colours. One command switches, no restart:
 
 ```sh
 scripts/skin.sh system1        # pixel type in the terminal too
 scripts/skin.sh system1-lite   # the terminal keeps your font (long answers read easier)
-scripts/skin.sh normal         # back to the usual look
-scripts/skin.sh uninstall      # normal, and ~/.config/ghostty/config exactly as before
+scripts/skin.sh normal         # back to glass
 ```
 
-Or right-click a section header or the card → **Look** (the terminal follows within
-15 s, through the sync job).
+Or right-click a section header or the card → **Look** (the terminal follows within 15 s).
 
 <details>
 <summary>How it works, and what it can't skin</summary>
+
+- **Undo all of it**: `scripts/skin.sh uninstall` goes back to normal and leaves
+  `~/.config/ghostty/config` exactly as before.
 
 - **Terminal**: `skin.sh` adds one optional include to `~/.config/ghostty/config`
   (`config-file = ?cmux-skin`, after a backup to `config.before-skin`) and fills
@@ -219,11 +222,11 @@ Gotchas found on the way (cmux 0.65.2):
 
 ## Images and video
 
-Everything in `docs/media` is drawn from [`docs/media/src/scene.html`](docs/media/src/scene.html): a recreation of the sidebar with demo data (the live one shows real workspace names), with the octopus read straight from `sidebars/agent-status.js`. After a design change:
+Everything in `docs/media` is drawn from [`docs/media/src/scene.html`](docs/media/src/scene.html): a recreation of the sidebar with demo data (the live one shows real workspace names), with the octopus read straight from `sidebars/agent-status.js`. `looks.png` is the sidebar's own code, run in the browser by [`cmux-sidebar.js`](docs/media/src/cmux-sidebar.js) on the same kind of demo data. After a design change:
 
 ```sh
 cd docs/media/src && npm ci
-node render.mjs stills   # hero.png, window.png, cards.png, octopus.gif
+node render.mjs stills   # hero.png, social-preview.png, looks.png, window.png, cards.png, octopus.gif
 node render.mjs video    # demo.mp4 and demo.gif
 node render.mjs social   # out/demo-vertical.mp4 (9:16) and out/poster.png (4:5)
 node render.mjs features         # features/*.gif, one loop per feature

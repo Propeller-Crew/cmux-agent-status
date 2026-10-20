@@ -33,7 +33,7 @@
   /* --- window ------------------------------------------------------------------ */
   .win { position: absolute; display: flex; border-radius: 12px; overflow: hidden;
          box-shadow: 0 0 0 1px #ffffff1f, 0 40px 120px -20px #000000d0, 0 0 80px -30px #5b8cff80; transform-origin: 0 0; }
-  .sb { position: relative; width: 252px; background: #1c1c1f; flex: none; }
+  .sb { position: relative; width: 252px; background: #1c1c1f; flex: none; color: var(--ink); }
   .sb.solo { border-radius: 14px; box-shadow: 0 0 0 1px #ffffff1f, 0 40px 120px -20px #000000d0, 0 0 90px -30px #5b8cff90; position: absolute; transform-origin: 0 0; overflow: hidden; }
   .sb-top { position: absolute; left: 0; right: 0; top: 0; height: 34px; display: flex; align-items: center; padding: 0 12px 0 14px; gap: 8px; }
   .light { width: 12px; height: 12px; border-radius: 50%; }
@@ -129,6 +129,7 @@
 </head>
 <body>
 <div id="stage"></div>
+<script src="cmux-sidebar.js"></script>
 <script>
 // ---------------------------------------------------------------------------------
 // Constants copied from sidebars/agent-status.js
@@ -335,6 +336,7 @@ function sidebar(w, t, height, trans, opts = {}) {
   for (const e of to.entries) {
     const el = document.createElement("div");
     el.className = "entry";
+    el.dataset.key = e.key;
     const f = fromMap.get(e.key);
     const y = f ? f.y + (e.y - f.y) * ease : e.y;
     el.style.top = y + "px";
@@ -513,6 +515,7 @@ function track(t, keys) {
 
 // Fit region r (in el's own coordinates) into the stage.
 function shoot(el, r) {
+  if (THEMES[THEME]?.frame) ({ el, r } = THEMES[THEME].frame(el, r));
   const s = Math.min(FW / r.w, FH / r.h);
   el.style.position = "absolute"; el.style.transformOrigin = "0 0";
   el.style.transform = `translate(${(FW - r.w * s) / 2 - r.x * s}px, ${(FH - r.h * s) / 2 - r.y * s}px) scale(${s})`;
@@ -538,7 +541,13 @@ function menu(parent, items, x, y, width, hi) {
   parent.insertAdjacentHTML("beforeend", `<div class="menu" style="left:${x}px;top:${y}px;width:${width}px">${html}</div>`);
 }
 
-const note = (text, a = 1) => { if (a > 0) stage.insertAdjacentHTML("beforeend", `<div class="note" style="opacity:${a}"><span>${text}</span></div>`); };
+// target: selectors of what the note explains; each selector is one highlighted area.
+const NOTES = [];
+const note = (text, a = 1, target = []) => {
+  if (a <= 0) return;
+  if (THEMES[THEME]?.callout) NOTES.push({ text, a, target });
+  else stage.insertAdjacentHTML("beforeend", `<div class="note" style="opacity:${a}"><span>${text.replace(/<br>/g, " ")}</span></div>`);
+};
 const noteA = (t, a, b) => span(t, a, a + 0.3) * (1 - span(t, b - 0.3, b));
 function bigKeys(keys, t, at) {
   const a = span(t, at - 0.3, at) * (1 - span(t, at + 0.9, at + 1.2));
@@ -593,13 +602,9 @@ const FEATS = {
   sections: { dur: 5.4, draw(t) {
     const w = only(["pay", "copy", "mono", "notes", "dash"]);
     delete w.rows.mono.progress;
-    const trans = steps(t, w, [
-      [1.2, (w) => { w.rows.pay.state = "needs"; w.rows.pay.ago = 0; }, 0.7],
-      [3.0, (w) => { w.rows.mono.state = "unread"; w.rows.mono.ago = 0; }, 0.7],
-    ]);
+    const trans = steps(t, w, [[1.2, (w) => { w.rows.pay.state = "needs"; w.rows.pay.ago = 0; }, 0.7]]);
     shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
-    note("Asks for permission → Needs you", noteA(t, 1.2, 2.9));
-    note("Done, not read yet → New", noteA(t, 3.0, 5.0));
+    note("Asks for permission?<br>It jumps to the top.", noteA(t, 2.0, 5.0), ['[data-key="h:needs"], [data-key="pay"]']);
   } },
 
   ago: { dur: 5, draw(t) {
@@ -611,8 +616,7 @@ const FEATS = {
       else w.rows[id].flash = 1 - span(t, at, at + 0.7);
     });
     shoot(sidebar(w, t, 560, null, { solo: true }), SB_REGION());
-    note("After a cmux restart…", noteA(t, 0.2, 1.8));
-    note("…real times, from Claude's transcripts", noteA(t, 2.1, 4.7));
+    note("Real times, read from<br>Claude's transcripts.", noteA(t, 2.1, 4.7), [".row .ago"]);
   } },
 
   background: { dur: 6.2, draw(t) {
@@ -636,8 +640,7 @@ const FEATS = {
 `;
     w.termBody = body;
     shoot(featWin(w, t, trans), { x: 0, y: 0, w: 560, h: 420 });
-    note("Claude's turn ended, the job still runs → Working", noteA(t, 0.4, 2.9));
-    note("Finished → New", noteA(t, 4.6, 6.0));
+    note("Turn over, tests running:<br>the row stays in Working.", noteA(t, 0.5, 4.3), ['[data-key="h:working"], [data-key="pay"]', ".tbody"]);
   } },
 
   progress: { dur: 5, draw(t) {
@@ -645,7 +648,7 @@ const FEATS = {
     w.rows.mono.progress = [Math.min(16, 9 + Math.floor(span(t, 0.5, 2.3) * 7.99)), 16];
     const trans = steps(t, w, [[2.8, (w) => { delete w.rows.mono.progress; w.rows.mono.state = "unread"; w.rows.mono.ago = 0; }, 0.7]]);
     shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
-    note("16 background agents, live", noteA(t, 0.3, 2.8));
+    note("A segment per background<br>agent, filled when done.", noteA(t, 0.3, 2.8), ['[data-key="mono"]']);
   } },
 
   tabs: { dur: 5, draw(t) {
@@ -658,7 +661,7 @@ const FEATS = {
       [2.8, (w) => { w.rows.ios.tabs[1].state = "unread"; w.rows.ios.tabs[1].ago = 0; }, 0.3],
     ]);
     shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
-    note("A second tab opens: each one gets its own state", noteA(t, 1.0, 4.8));
+    note("Each tab keeps its<br>own state.", noteA(t, 1.4, 4.8), ['[data-key="ios"], [data-key^="ios:"]']);
   } },
 
   sleep: { dur: 5.6, draw(t) {
@@ -681,21 +684,21 @@ const FEATS = {
     }
     pointer(sb, p);
     shoot(sb, SB_REGION(60));
-    note("Drag a row into Sleeping to park it", noteA(t, 0.2, 1.2) + noteA(t, 3.2, 5.3));
+    note("Drag a row here to park.<br>It wakes when you write.", noteA(t, 3.1, 5.3), ['[data-key="h:inactive"]']);
   } },
 
-  close: { dur: 5, draw(t) {
+  close: { dur: 5.6, draw(t) {
     const w = only(["pay", "copy", "notes", "dash", "triage"]);
     const y = rowY(w, "triage") + 15;
-    const p = track(t, [[0.2, 200, 340], [0.9, 150, y], [1.2, 226, y], [2.6, 226, y], [3.3, 210, 345]]);
+    const p = track(t, [[0.2, 200, 340], [0.9, 150, y], [1.2, 226, y], [3.4, 226, y], [4.1, 210, 345]]);
     p.t = t;
     if (t >= 0.9 && t < 1.6) { w.hover = "triage"; w.hoverX = t >= 1.15; }
-    if (t >= 1.6 && t < 2.6) w.confirm = "triage";
-    const trans = steps(t, w, [[2.6, (w) => { delete w.rows.triage; w.order = w.order.filter((x) => x !== "triage"); }, 0.45]]);
+    if (t >= 1.6 && t < 3.4) w.confirm = "triage";
+    const trans = steps(t, w, [[3.4, (w) => { delete w.rows.triage; w.order = w.order.filter((x) => x !== "triage"); }, 0.45]]);
     const sb = sidebar(w, t, 560, trans, { solo: true });
-    pointer(sb, p, [1.55, 2.55]);
+    pointer(sb, p, [1.55, 3.35]);
     shoot(sb, SB_REGION(100));
-    note("× asks first, a second click closes", noteA(t, 0.5, 4.7));
+    note("× asks first.<br>A second click closes.", noteA(t, 1.0, 3.4), ['[data-key="triage"]']);
   } },
 
   limit: { dur: 5, draw(t) {
@@ -703,6 +706,7 @@ const FEATS = {
     const pct = t < 2.6 ? Math.round(42 * easeOut(span(t, 0.3, 1.6))) : 42 + Math.round(34 * easeInOut(span(t, 2.6, 3.8)));
     w.limit = { ...w.limit, pct, left: t < 2.6 ? "2h 14m" : "1h 32m" };
     shoot(sidebar(w, t, 320, null, { solo: true }), { x: -24, y: 110, w: 300, h: 225 });
+    note("5-hour and weekly limits.<br>Orange from 70%.", noteA(t, 0.4, 4.7), [".card"]);
   } },
 
   focus: { dur: 5.5, draw(t) {
@@ -715,6 +719,7 @@ const FEATS = {
     p.t = t;
     pointer(sb, p, [1.2]);
     shoot(sb, { x: -24, y: 110, w: 300, h: 225 });
+    note("25 minutes of focus,<br>then a notification.", noteA(t, 1.5, 5.2), [".card"]);
   } },
 
   today: { dur: 4.6, draw(t) {
@@ -729,6 +734,7 @@ const FEATS = {
     p.t = t;
     pointer(sb, p, [0.85]);
     shoot(sb, { x: -24, y: 110, w: 300, h: 225 });
+    note("Today: prompts, hours,<br>agents and your streak.", noteA(t, 1.3, 4.3), [".card"]);
   } },
 
   project: { dur: 5.2, draw(t) {
@@ -743,22 +749,22 @@ const FEATS = {
     p.t = t;
     pointer(sb, p, [1.65]);
     shoot(sb, SB_REGION(125));
-    note("This project: time and prompts here", noteA(t, 2.0, 4.9));
+    note("Select a row to see<br>its hours and prompts.", noteA(t, 2.0, 4.9), [".card", '[data-key="notes"]']);
   } },
 
   download: { dur: 5.6, draw(t) {
     const w = only(["copy", "pay", "notes"]);
     w.selected = "copy";
     w.termBody = SHORT.dl;
-    if (t >= 0.5 && t < 2.9) w.download = { name: "IMG_2041.png", ago: "now", in: easeOut(span(t, 0.5, 1.0)), press: t > 2.1 ? Math.sin(span(t, 2.1, 2.5) * Math.PI) : 0, out: t > 2.5 ? span(t, 2.5, 2.9) : null };
-    if (t >= 2.5) w.typed = "~/Downloads/IMG_2041.png ";
+    if (t >= 0.5 && t < 3.4) w.download = { name: "IMG_2041.png", ago: "now", in: easeOut(span(t, 0.5, 1.0)), press: t > 2.6 ? Math.sin(span(t, 2.6, 3.0) * Math.PI) : 0, out: t > 3.0 ? span(t, 3.0, 3.4) : null };
+    if (t >= 3.0) w.typed = "~/Downloads/IMG_2041.png ";
     const win = featWin(w, t, null, 620, 480);
     const cy = cardY(480) - H.DL + 17;
-    const p = track(t, [[0.2, 360, 260], [1.8, 216, cy], [2.3, 216, cy], [3.1, 330, 290]]);
+    const p = track(t, [[0.2, 360, 260], [2.2, 216, cy], [2.8, 216, cy], [3.6, 330, 290]]);
     p.t = t;
-    pointer(win, p, [2.15]);
+    pointer(win, p, [2.65]);
     shoot(win, { x: 0, y: 120, w: 480, h: 360 });
-    note("AirDrop a screenshot → paste it into Claude", noteA(t, 0.6, 5.3));
+    note("AirDrop a screenshot,<br>paste it into Claude.", noteA(t, 0.8, 3.1), [".chip", ".prompt"]);
   } },
 
   cmdn: { dur: 5, draw(t) {
@@ -772,22 +778,22 @@ const FEATS = {
     }, 0.6]]);
     shoot(featWin(w, t, trans, 620, 540), { x: 0, y: 0, w: 560, h: 420 });
     bigKeys(["⌘", "N"], t, 1.2);
-    note("⌘N opens Claude, not a bare shell", noteA(t, 1.7, 4.8));
+    note("⌘N opens a workspace<br>with Claude running.", noteA(t, 1.9, 4.8), ['[data-key="h:fresh"], [data-key="fresh"]', ".tbody"]);
   } },
 
-  openhere: { dur: 6.2, draw(t) {
+  openhere: { dur: 6.8, draw(t) {
     const w = only(["ios", "copy", "notes"]);
     delete w.rows.ios.tabs;
     w.selected = "ios";
     w.termBody = SHORT.ios;
     const ry = rowY(w, "ios") + 15;
-    const opened = t >= 2.9;
+    const opened = t >= 3.65;
     if (opened) {
-      w.termTabs = [{ title: "iOS widget", on: false }, { title: "Claude", on: true, in: easeOut(span(t, 2.9, 3.2)) }];
+      w.termTabs = [{ title: "iOS widget", on: false }, { title: "Claude", on: true, in: easeOut(span(t, 3.65, 3.95)) }];
       w.termBody = WELCOME("~/code/ios-widget/.claude/worktrees/calm-otter", `<span class="dim">$</span> claude -w\n`);
     }
     const win = featWin(w, t, null);
-    const p = track(t, [[0.1, 330, 330], [0.8, 110, ry], [1.0, 110, ry], [1.4, 150, ry + 18], [2.0, 300, ry + 13], [2.5, 300, ry + 13], [3.4, 420, 300]]);
+    const p = track(t, [[0.1, 330, 330], [0.8, 110, ry], [1.0, 110, ry], [1.4, 150, ry + 18], [2.0, 300, ry + 13], [3.3, 300, ry + 13], [4.1, 420, 300]]);
     p.t = t;
     if (t >= 0.9 && !opened) {
       menu(win, [{ label: "Open here", sub: true }, "-", "Put to sleep", "Rename", "Pin", "Mark as Read", "-", { label: "Close Others", red: true }, { label: "Close", red: true }],
@@ -795,9 +801,9 @@ const FEATS = {
       if (t >= 1.4) menu(win, ["Claude on its own branch (worktree)", "Another Claude", "-", "Preview localhost:3000 in the Dock", "iOS Simulator"],
         278, ry - 3, 250, t >= 1.9 ? 0 : -1);
     }
-    pointer(win, p, [0.95, 2.85]);
+    pointer(win, p, [0.95, 3.6]);
     shoot(win, { x: 0, y: 0, w: 560, h: 420 });
-    note("Right-click → Open here", noteA(t, 0.5, 5.9));
+    note("Worktree, second Claude,<br>preview or simulator.", noteA(t, 1.6, 3.5), [".menu"]);
   } },
 
   tabstrip: { dur: 6.4, draw(t) {
@@ -824,6 +830,7 @@ const FEATS = {
     if (t >= 2.7 && t < 3.55) win.insertAdjacentHTML("beforeend", `<div class="tip" style="left:${bx(1) - 150}px;top:38px">Claude on a new branch</div>`);
     pointer(win, p, [1.55, 3.55]);
     shoot(win, { x: 252, y: 0, w: 368, h: 276 });
+    note("A Claude tab, or Claude<br>on a branch of its own.", noteA(t, 4.1, 6.1), [".tbtns"]);
   } },
 
   keys: { dur: 5.6, draw(t) {
@@ -835,7 +842,7 @@ const FEATS = {
     if (t >= 1.9) w.selected = "pay";
     shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
     bigKeys(["⌘", "3"], t, 1.9);
-    note("The numbers follow the rows", noteA(t, 3.3, 5.3));
+    note("⌘1…9 follow the rows,<br>even when they move.", noteA(t, 3.3, 5.3), [".key"]);
   } },
 
   lang: { dur: 5, draw(t) {
@@ -848,19 +855,21 @@ const FEATS = {
     if (t >= 0.9 && t < 1.9) menu(sb, ["Українська", "English"], 62, 54, 130, t >= 1.45 ? 0 : -1);
     pointer(sb, p, [0.95, 1.85]);
     shoot(sb, SB_REGION());
-    note("Right-click a header: English or Українська", noteA(t, 0.4, 4.7));
+    note("Right-click a header:<br>English or Українська.", noteA(t, 2.1, 4.7), [".pill"]);
   } },
 };
 
 function renderFeat(t) {
   const f = FEATS[params.get("name")] ?? FEATS.sections;
   sizeStage(FW, FH);
-  stage.className = "flat";
+  stage.className = THEME ? "" : "flat";
   stage.innerHTML = "";
+  NOTES.length = 0;
   f.draw(t);
+  for (const n of NOTES) THEMES[THEME].callout(n);
   // Fade through the background so the loop restarts cleanly.
   const fade = Math.max(1 - span(t, 0, 0.25), span(t, f.dur - 0.35, f.dur));
-  if (fade > 0) stage.insertAdjacentHTML("beforeend", `<div style="position:absolute;inset:0;z-index:50;background:#0e0f14;opacity:${fade}"></div>`);
+  if (fade > 0) stage.insertAdjacentHTML("beforeend", `<div style="position:absolute;inset:0;z-index:50;background:${THEMES[THEME]?.fade ?? "#0e0f14"};opacity:${fade}"></div>`);
 }
 
 // --- modes --------------------------------------------------------------------------
@@ -876,6 +885,7 @@ function caption(html, style) { const d = document.createElement("div"); d.class
 const WIN = { w: 760, h: 760 };
 
 function renderVideo(t) {
+  if (THEMES[THEME]?.video) return THEMES[THEME].video(t);
   stage.innerHTML = "";
   const vertical = FMT === "9x16";
   const { w, trans } = worldAt(t, vertical);
@@ -981,6 +991,7 @@ function heroWorld() {
 
 function renderHero() {
   sizeStage(1280, 640);
+  if (THEMES[THEME]) return THEMES[THEME].hero();
   const w = heroWorld();
   const box = caption("", { left: "84px", top: "150px", width: "600px" });
   box.appendChild(octoCanvas("work", 1, 5));
@@ -1030,7 +1041,53 @@ function renderCards() {
   }
 }
 
+// The real sidebar (sidebars/agent-status.js, via cmux-sidebar.js) on demo workspaces,
+// as cmux would hand them over: tokens in descriptions, agents, tabs, progress.
+function lookWorkspaces(skin, now) {
+  const ws = (id, title, desc, more = {}) => ({ id, title, description: desc.filter(Boolean).join(" · "), agents: [], tabs: [{ id: id + "-t", title, focused: true, surfaceId: id + "-s" }], unread: 0, ...more });
+  const last = (ago) => "last prompt @" + (now - ago);
+  const out = [
+    ws("pay", "Payments refactor", [last(300), "lim:42/" + (now + 8040) + "/18/" + (now + 5 * 86400), "day:47/318/12/6", "skin:" + skin],
+      { agents: [{ status: "needs_input", panelId: "pay-t", sinceEpoch: now - 30 }] }),
+    ws("copy", "Landing page copy", [last(240)], { unread: 1 }),
+    ws("mono", "Monorepo migration", [last(900), "st:18/126"], { selected: true, progress: { label: "12/16" },
+      agents: [{ status: "working", panelId: "mono-t", sinceEpoch: now - 900 }] }),
+    ws("ios", "iOS widget", [last(60)], {
+      tabs: [{ id: "i1", title: "Widget timeline", focused: true }, { id: "i2", title: "App Store screenshots", hasUnread: true, latestAt: now - 180 }],
+      agents: [{ status: "working", panelId: "i1", sinceEpoch: now - 60 }] }),
+    ws("notes", "Release notes v2.4", [last(3600)]),
+    ws("dash", "Analytics dashboard", [last(3 * 3600)]),
+  ];
+  for (let i = 0; i < 14; i += 1) out.push(ws("old" + i, "Old project " + i, [last(3 * 86400 + i * 3600)]));
+  return out;
+}
+
+// Two looks of the panel side by side, from its own code: normal (glass) and System 1.
+function renderLooks() {
+  const now = 1792000000;
+  const looks = [["normal", "dark", "1", "Normal", "Glass, light or dark"], ["system1", "light", "2", "System 1", "A 1984 Macintosh"]];
+  const panels = looks.map(([skin, appearance]) => {
+    const el = runSidebar(window.__SIDEBAR, { workspaces: lookWorkspaces(skin, now), epoch: now, appearance, width: 252 });
+    el.style.position = "absolute";
+    if (skin === "normal") { el.style.background = "#1E1E22"; el.style.borderRadius = "14px"; el.style.paddingTop = "8px"; }
+    el.style.boxShadow = skin === "normal" ? "0 1px 0 #0000001a, 0 18px 40px -18px #0000004d" : "0 0 0 1px #111";
+    return el;
+  });
+  const W = 56 + 252 + 120 + 252 + 56;
+  sizeStage(W, 100);
+  stage.innerHTML = "";
+  panels.forEach((el, i) => {
+    const x = 56 + i * (252 + 120), [, , n, name, sub] = looks[i];
+    el.style.left = x + "px"; el.style.top = "104px";
+    stage.appendChild(el);
+    html(`<div style="display:flex;gap:10px;align-items:center"><span class="num">${n}</span><span class="mono-l">${name}</span></div>
+      <div style="margin:6px 0 0 32px;font:400 15px 'Helvetica Neue';color:#333">${sub}</div>`, `left:${x}px;top:40px`);
+  });
+  sizeStage(W, 104 + Math.max(...panels.map((el) => el.offsetHeight)) + 48);
+}
+
 function renderOcto(t) {
+  if (THEMES[THEME]?.octo) return THEMES[THEME].octo(t);
   // Octopus moods, labelled; t picks the frame.
   const moods = [["sleep", "nothing going on"], ["idle", "you were just here"], ["work", "agents working"], ["needs", "one waits on you"], ["party", "fresh results"]];
   sizeStage(moods.length * 170 + 40, 196);
@@ -1047,6 +1104,7 @@ function renderOcto(t) {
 function renderPoster() {
   // 1080×1350 social still.
   sizeStage(1080, 1350);
+  if (THEMES[THEME]?.poster) return THEMES[THEME].poster();
   const w = heroWorld();
   caption(`<div class="h1" style="font-size:78px;text-align:center">Every Claude Code agent,<br><span class="grad">at a glance</span></div>
     <div class="sub" style="margin-top:20px;text-align:center;font-size:28px">A sidebar for cmux · open source</div>`, { left: "60px", right: "60px", top: "86px" });
@@ -1054,6 +1112,583 @@ function renderPoster() {
   sb.style.transform = `translate(${(1080 - 252 * 1.5) / 2}px, 355px) scale(1.5)`;
   stage.appendChild(sb);
 }
+
+// --- looks (?theme=…) -----------------------------------------------------------------
+// manual (Field manual) is the house style and the default: light grey, numbered
+// orange callouts, mono labels. mac, swiss, term and balloon are the candidates it was
+// chosen from, and any other name (e.g. plain) gives the old dark look. The panel itself is the product
+// UI and keeps its own colours; only the background, type, framing and the octopus's
+// presentation change.
+const THEME = params.get("theme") ?? "manual";
+const THEME_CSS = `
+  /* System 1: Macintosh, 1984 */
+  body.th-mac #stage, body.th-balloon #stage { background-color: #fff; background-image: repeating-conic-gradient(#000 0 25%, #fff 0 100%); background-size: 4px 4px; }
+  body.th-mac #stage::after, body.th-swiss #stage::after, body.th-term #stage::after, body.th-manual #stage::after, body.th-balloon #stage::after { display: none; }
+  .mwin { position: absolute; background: #fff; border: 2px solid #000; box-shadow: 4px 4px 0 #000; color: #000; }
+  .mtitle { position: relative; border-bottom: 2px solid #000; padding: 5px 4px; display: flex; align-items: center; justify-content: center;
+            background: repeating-linear-gradient(#000 0 2px, #fff 2px 4px) content-box; }
+  .mname { background: #fff; padding: 0 12px; font-family: "Pixelify Sans", Geneva, monospace; line-height: 1; }
+  .mclose { position: absolute; left: 12px; top: 50%; width: 14px; height: 14px; margin-top: -7px; background: #fff; border: 2px solid #000; box-shadow: 0 0 0 3px #fff; }
+  .pix { font-family: "Pixelify Sans", Geneva, monospace; }
+  .geneva { font-family: Geneva, "Helvetica Neue", sans-serif; }
+  .mbtn { display: inline-block; border: 2px solid #000; border-radius: 9px; padding: 6px 18px; font-family: Geneva, sans-serif; background: #fff; color: #000; }
+  .mbtn.def { box-shadow: 0 0 0 3px #fff, 0 0 0 6px #000; }
+  .micon { position: absolute; text-align: center; }
+  .micon span { display: inline-block; margin-top: 6px; background: #000; color: #fff; padding: 1px 6px; font-family: Geneva, sans-serif; }
+  body.th-mac .sb.solo { border-radius: 0; box-shadow: 0 0 0 2px #000, 5px 5px 0 2px #000; }
+  body.th-mac .note span { font: 16px "Pixelify Sans", Geneva, monospace; color: #000; background: #fff; border: 2px solid #000; border-radius: 0; box-shadow: 3px 3px 0 #000; }
+
+  /* System 1 + Balloon Help (System 7): callouts that explain the panel */
+  .sys1box { position: absolute; background: #fff; color: #000; border: 2px solid #000; padding: 30px 34px;
+             box-shadow: inset 0 0 0 4px #fff, inset 0 0 0 6px #000, 4px 4px 0 #000; }
+  .bal { background: #fff; color: #000; border: 2px solid #000; border-radius: 12px; padding: 9px 14px 10px;
+         font-family: "Pixelify Sans", Geneva, monospace; line-height: 1.25; box-shadow: 3px 3px 0 #000; }
+  .nb { display: grid; place-items: center; border-radius: 50%; background: #F5A524; border: 2px solid #000;
+        font-family: "Pixelify Sans", Geneva, monospace; font-weight: 600; color: #000; line-height: 1; }
+  .mframe > .shot { position: relative; border-radius: 0; box-shadow: none; }
+  body.th-balloon .bigkeys b { font: 600 26px "Pixelify Sans", Geneva, monospace; color: #000; background: #fff; border: 2px solid #000; border-radius: 8px; box-shadow: 3px 3px 0 #000; }
+  body.th-balloon .tip { font: 14px "Pixelify Sans", Geneva, monospace; color: #000; background: #fff; border: 2px solid #000; border-radius: 8px; box-shadow: 2px 2px 0 #000; }
+
+  /* Swiss poster */
+  body.th-swiss #stage { background: #F5A524; color: #000; }
+  .hn { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #000; }
+  .rule { border-top: 3px solid #000; }
+  body.th-swiss .sb.solo { box-shadow: none; }
+  body.th-swiss .note { text-align: left; left: 18px; bottom: 18px; }
+  body.th-swiss .note span { font: 700 15px "Helvetica Neue", sans-serif; color: #F5A524; background: #000; border: 0; border-radius: 0; padding: 7px 11px; }
+
+  /* man page */
+  body.th-term #stage { background: #0b0b0b; }
+  .tt { font-family: "SF Mono", Menlo, monospace; color: #c8c8c8; white-space: pre; }
+  .tt b { color: #fff; }
+  .octotext { white-space: pre; letter-spacing: 0; }
+  .tframe { position: absolute; border: 1px solid #4a4a4a; }
+  .tframe > i { position: absolute; top: -0.7em; left: 14px; background: #0b0b0b; padding: 0 6px; font: normal 13px "SF Mono", Menlo, monospace; color: #8a8a8a; }
+  body.th-term .sb.solo { box-shadow: none; border-radius: 10px; }
+  body.th-term .note { text-align: left; left: 18px; bottom: 16px; }
+  body.th-term .note span { font: 14px "SF Mono", Menlo, monospace; color: #9a9a9a; background: #0b0b0b; border: 0; border-radius: 0; padding: 2px 4px; }
+  body.th-term .note span::before { content: "# "; color: #5a5a5a; }
+
+  /* Field manual */
+  body.th-manual #stage { background: #E4E4E0; color: #111; }
+  .mono-l { font: 500 12px "SF Mono", Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; color: #111; }
+  .num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #FF4F00; color: #fff; font: 600 12px "SF Mono", Menlo, monospace; letter-spacing: 0; }
+  body.th-manual .sb.solo { box-shadow: 0 1px 0 #0000001a, 0 18px 40px -18px #0000004d; }
+  body.th-manual .note { text-align: left; left: 18px; bottom: 16px; }
+  body.th-manual .note span { font: 500 12px "SF Mono", Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; color: #111; background: #E4E4E0; border: 1px solid #111; border-radius: 0; padding: 6px 10px; }
+  body.th-manual .win { box-shadow: 0 1px 0 #0000001a, 0 24px 60px -24px #00000066; }
+  .dtag { display: flex; gap: 9px; align-items: flex-start; background: #F4F4F1; border: 1px solid #111; padding: 8px 12px 9px 9px;
+          font: 400 15px/1.3 "Helvetica Neue", Helvetica, sans-serif; color: #111; }
+  .dtag .num { flex: none; margin-top: -1px; }
+  body.th-manual .bigkeys b { font: 600 22px "SF Mono", Menlo, monospace; color: #111; background: #F4F4F1; border: 1px solid #111; border-radius: 6px; box-shadow: 0 2px 0 #111; }
+  body.th-manual .tip { font: 500 11px "SF Mono", Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; color: #111; background: #F4F4F1; border: 1px solid #111; border-radius: 0; }
+`;
+if (THEME) {
+  document.body.classList.add("th-" + THEME);
+  document.head.insertAdjacentHTML("beforeend", `<style>${THEME_CSS}</style>`);
+  if (THEME === "mac" || THEME === "balloon") document.head.insertAdjacentHTML("beforeend", '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=block">');
+}
+
+function put(el, x, y, s) { el.style.position = "absolute"; el.style.transformOrigin = "0 0"; el.style.transform = `translate(${x}px, ${y}px) scale(${s})`; stage.appendChild(el); return el; }
+function html(h, style = "") { const d = document.createElement("div"); d.style.cssText = "position:absolute;" + style; d.innerHTML = h; stage.appendChild(d); return d; }
+
+function macWin(title, x, y, wd, ht, fs = 16) {
+  const d = html(`<div class="mtitle" style="height:${fs + 12}px"><span class="mclose"></span><span class="mname" style="font-size:${fs}px">${title}</span></div><div class="mbody" style="position:relative"></div>`,
+    `left:${x}px;top:${y}px;width:${wd}px;${ht ? "height:" + ht + "px;" : ""}`);
+  d.className = "mwin";
+  return d.querySelector(".mbody");
+}
+function macPanel(x, y, s, fs, w = heroWorld(), height = 628, t = 0.2, trans = null) {
+  const body = macWin("agent-status", x, y, 252 * s + 4, null, fs);
+  const clip = document.createElement("div");
+  clip.style.cssText = `position:relative;width:${252 * s}px;height:${height * s}px;overflow:hidden`;
+  const sb = sidebar(w, t, height, trans);
+  sb.style.transformOrigin = "0 0"; sb.style.transform = `scale(${s})`;
+  clip.appendChild(sb); body.appendChild(clip);
+  const r = clip.getBoundingClientRect(), o = stage.getBoundingClientRect();
+  return { x: r.left - o.left, y: r.top - o.top, s };
+}
+function macMenu(h, fs) {
+  const bar = html(`<span style="display:inline-flex;align-items:center;gap:${fs * 1.3}px"><span class="slot"></span><b style="font-weight:600">File</b><span>Edit</span><span>View</span><span>Agents</span><span>Special</span></span><span style="margin-left:auto">03:00</span>`,
+    `left:0;right:0;top:0;height:${h}px;background:#fff;border-bottom:2px solid #000;display:flex;align-items:center;padding:0 ${fs}px;font:${fs}px 'Pixelify Sans',Geneva;color:#000`);
+  bar.querySelector(".slot").replaceWith(octoCanvas("idle", 0, h / 22));
+}
+function macIcon(x, y, px, label, fs) {
+  const d = html("", `left:${x}px;top:${y}px`); d.className = "micon";
+  const c = octoCanvas("party", 1, px); c.style.margin = "0 auto"; d.appendChild(c);
+  d.insertAdjacentHTML("beforeend", `<span style="font-size:${fs}px">${label}</span>`);
+}
+
+function octoText(mood, tick, fs) {
+  const frames = OCTO.frames[mood] ?? OCTO.frames.idle, f = frames[Math.floor(tick) % frames.length];
+  const rows = f.map((row) => [...row].map((ch) => OCTO.palette[ch] ? `<span style="color:${OCTO.palette[ch]}">██</span>` : "  ").join(""));
+  return `<div class="octotext" style="font:${fs}px/${fs * 1.18}px 'SF Mono',Menlo,monospace">${rows.join("\n")}</div>`;
+}
+
+// Balloon Help: a bubble with its tail on one side, `at` px along that side. With the
+// tail at the bottom, y is the bubble's bottom edge. Returns the tail's tip.
+function bubble(text, x, y, wd, fs, tail = "left", a = 1, at = tail === "left" || tail === "right" ? 10 : 22) {
+  const [pos, pts, sw, sh] = {
+    left: [`left:-20px;top:${at}px`, "22,1 2,13 22,25", 22, 26],
+    right: [`left:calc(100% - 2px);top:${at}px`, "0,1 20,13 0,25", 22, 26],
+    top: [`left:${at}px;top:-20px`, "1,22 13,2 25,22", 26, 22],
+    bottom: [`left:${at}px;top:calc(100% - 2px)`, "1,0 13,20 25,0", 26, 22],
+  }[tail];
+  const d = html(`<svg width="${sw}" height="${sh}" style="position:absolute;${pos};overflow:visible"><polyline points="${pts}" fill="#fff" stroke="#000" stroke-width="2"/></svg><div>${text}</div>`,
+    `left:${x}px;top:${y}px;width:${wd}px;font-size:${fs}px;opacity:${a}`);
+  d.className = "bal";
+  const h = d.offsetHeight;
+  if (tail === "bottom") { y -= h; d.style.top = y + "px"; }
+  return {
+    left: { x: x - 16, y: y + at + 15 }, right: { x: x + wd + 16, y: y + at + 15 },
+    top: { x: x + at + 15, y: y - 16 }, bottom: { x: x + at + 15, y: y + h + 16 },
+  }[tail];
+}
+// Everything in rect f but the holes, under a 50% dither: the way System 1 greys things out.
+function veil(f, holes, a) {
+  const r = (b, more) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" ${more}/>`;
+  html(`<svg width="${f.x + f.w}" height="${f.y + f.h}" style="display:block"><defs>
+    <pattern id="vp" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="2" height="2"/><rect x="2" y="2" width="2" height="2"/></pattern>
+    <mask id="vm">${r(f, 'fill="#fff"')}${holes.map((h) => r(h, 'rx="6" fill="#000"')).join("")}</mask></defs>${r(f, 'fill="url(#vp)" mask="url(#vm)"')}</svg>`,
+    `left:0;top:0;opacity:${a}`);
+}
+// Bounding box of elements in stage px, grown by pad.
+function stageBox(els, pad = 0) {
+  if (!els.length) return null;
+  const o = stage.getBoundingClientRect(), rs = els.map((e) => e.getBoundingClientRect());
+  const x = Math.min(...rs.map((r) => r.left)) - o.left - pad, y = Math.min(...rs.map((r) => r.top)) - o.top - pad;
+  return { x, y, w: Math.max(...rs.map((r) => r.right)) - o.left + pad - x, h: Math.max(...rs.map((r) => r.bottom)) - o.top + pad - y };
+}
+// Orange number on the panel's edge, and a 1px line from it to a balloon.
+function callout(n, at, tip, d = 26, a = 1) {
+  html(`<svg width="1" height="1" style="overflow:visible;display:block"><line x1="${at.x}" y1="${at.y}" x2="${tip.x}" y2="${tip.y}" stroke="#000" stroke-width="1"/></svg>`, `left:0;top:0;opacity:${a}`);
+  html(String(n), `left:${at.x - d / 2}px;top:${at.y - d / 2}px;width:${d}px;height:${d}px;font-size:${Math.round(d * 0.6)}px;opacity:${a}`).className = "nb";
+}
+// Three rows, one per section the callouts name.
+function calmWorld() {
+  const w = trimmed(baseWorld(), ["e2e", "ios", "docs", "idea", "notes", "dash", "triage"]);
+  w.rows.pay.state = "needs"; w.rows.pay.ago = 30;
+  w.rows.mono.progress = [12, 16];
+  w.selected = null;
+  return w;
+}
+const rowMid = (w, id) => { const e = layout(w).entries.find((x) => x.key === id); return 36 + e.y + e.h / 2; };
+const calmHeight = (w) => 36 + layout(w).height + 12 + H.CARD + 30;
+
+// Field manual pieces: a numbered mark (orange number, mono label, two lines of text),
+// leaders from an orange dot along a path of points, and flat grey over all but the holes.
+function mark(n, title, text, fs, d, mono) {
+  return `<div style="display:flex;gap:10px;align-items:center"><span class="num" style="width:${d}px;height:${d}px;font-size:${Math.round(d * 0.55)}px">${n}</span><span class="mono-l" style="font-size:${mono}px">${title}</span></div>
+    <div style="margin:${Math.round(fs / 3)}px 0 0 ${d + 10}px;font:400 ${fs}px/1.35 'Helvetica Neue';color:#333;white-space:nowrap">${text}</div>`;
+}
+function wires(paths, a = 1, stroke = 1.2) {
+  const svg = paths.map((pts) => `<polyline points="${pts.map((q) => q.x + "," + q.y).join(" ")}" fill="none" stroke="#111" stroke-width="${stroke}"/>
+    <circle cx="${pts[0].x}" cy="${pts[0].y}" r="${3.5 * stroke}" fill="#FF4F00" stroke="#111" stroke-width="${stroke}"/>`).join("");
+  html(`<svg width="1" height="1" style="overflow:visible;display:block">${svg}</svg>`, `left:0;top:0;opacity:${a}`);
+}
+function greyOut(f, holes, a) {
+  const r = (b, more) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" ${more}/>`;
+  html(`<svg width="${f.x + f.w}" height="${f.y + f.h}" style="display:block"><defs><mask id="gm">${r(f, 'fill="#fff"')}${holes.map((h) => r(h, 'rx="6" fill="#000"')).join("")}</mask></defs>${r(f, 'fill="#E4E4E0" fill-opacity="0.8" mask="url(#gm)"')}</svg>`,
+    `left:0;top:0;opacity:${a}`);
+}
+
+const THEMES = {
+  mac: {
+    label: "System 1",
+    why: "Macintosh System 1 (1984, Susan Kare): a 1-bit desktop, hard shadows and pixel type that rhymes with the pixel octopus. Black and white around a colourful panel, no glow anywhere.",
+    hero() {
+      macMenu(30, 17);
+      const b = macWin("Read Me", 48, 64, 650, 500, 16);
+      b.innerHTML = `<div style="padding:34px 38px">
+        <div class="pix" style="font-size:66px;line-height:1;font-weight:600">Claude sidebar<br>for cmux</div>
+        <div class="geneva" style="margin-top:24px;font-size:21px;line-height:1.5;max-width:540px">Every Claude Code agent at a glance: who needs you, who's working, who's done. And your usage limit, right there.</div>
+        <div style="margin-top:34px;display:flex;gap:20px;align-items:center;font-size:18px"><span class="mbtn def">Install</span><span class="mbtn">cmux ≥ 0.65</span><span class="mbtn">macOS</span></div></div>`;
+      macPanel(892, 46, 0.88, 15);
+      macIcon(735, 430, 3.5, "Octopus", 15);
+    },
+    poster() {
+      macMenu(52, 28);
+      const b = macWin("Read Me", 56, 96, 968, null, 28);
+      b.innerHTML = `<div style="padding:34px 42px 40px"><div class="pix" style="font-size:84px;line-height:1;font-weight:600">Every Claude Code agent, at a glance</div>
+        <div class="geneva" style="margin-top:22px;font-size:32px">A sidebar for cmux. Open source.</div></div>`;
+      macPanel(560, 470, 1.3, 26);
+      macIcon(150, 760, 7, "Octopus", 30);
+      html(`<div class="mbtn def" style="font-size:30px">Install…</div>`, "left:120px;top:1130px");
+    },
+  },
+
+  swiss: {
+    label: "Swiss poster",
+    why: "Josef Müller-Brockmann's concert posters: one flat signal colour (the panel's own Needs-you orange), a strict grid and big Helvetica. The type and the grid do the work, with no effects.",
+    hero() {
+      html(`<div class="rule"></div><div class="hn" style="display:flex;justify-content:space-between;margin-top:8px;font:700 15px 'Helvetica Neue'"><span>cmux · Claude Code · macOS</span><span>Open source · GPL-3.0</span></div>`, "left:56px;right:56px;top:40px");
+      html(`<div class="hn" style="font:700 120px/0.92 'Helvetica Neue';letter-spacing:-0.045em">Claude<br>sidebar<br>for cmux</div>`, "left:52px;top:100px");
+      const rows = [["01", "Needs you"], ["02", "New"], ["03", "Working"], ["04", "No task yet"], ["05", "Done"], ["06", "Sleeping"]];
+      html(`<div class="hn" style="display:grid;grid-template-columns:1fr 1fr 1fr;column-gap:22px;font:700 17px 'Helvetica Neue'">${rows.map(([n, l]) => `<div style="border-top:2px solid #000;padding:7px 0 12px"><span style="font-weight:400">${n}</span><br>${l}</div>`).join("")}</div>`,
+        "left:56px;top:452px;width:560px");
+      html(`<div class="hn" style="font:400 15px 'Helvetica Neue'">github.com/sahneo/cmux-claude-sidebar</div>`, "left:56px;top:592px");
+      put(octoCanvas("needs", 1, 9), 640, 112, 1);
+      put(sidebar(heroWorld(), 0.2, 628, null, { solo: true }), 900, 76, 1);
+    },
+    poster() {
+      html(`<div class="rule"></div><div class="hn" style="display:flex;justify-content:space-between;margin-top:10px;font:700 28px 'Helvetica Neue'"><span>Claude sidebar for cmux</span><span>GPL-3.0</span></div>`, "left:60px;right:60px;top:56px");
+      html(`<div class="hn" style="font:700 126px/0.92 'Helvetica Neue';letter-spacing:-0.045em">Every<br>Claude Code<br>agent, at<br>a glance.</div>`, "left:56px;top:150px");
+      const rows = [["01", "Needs you"], ["02", "New"], ["03", "Working"], ["04", "No task yet"], ["05", "Done"], ["06", "Sleeping"]];
+      html(`<div class="hn">${rows.map(([n, l]) => `<div style="border-top:3px solid #000;padding:8px 0 14px;font:700 32px 'Helvetica Neue';display:flex;gap:22px"><span style="font-weight:400;width:44px">${n}</span>${l}</div>`).join("")}</div>`,
+        "left:60px;top:680px;width:430px");
+      html(`<div class="hn" style="font:400 28px/1.3 'Helvetica Neue'">github.com/sahneo/<br>cmux-claude-sidebar</div>`, "left:60px;top:1240px");
+      put(octoCanvas("needs", 1, 6), 870, 340, 1);
+      put(sidebar(heroWorld(), 0.2, 628, null, { solo: true }), 580, 660, 1.42);
+    },
+  },
+
+  term: {
+    label: "man page",
+    why: "Unix man pages and htop: monospace only, ANSI colours from the panel's own palette, and the octopus drawn in █ characters. It's the medium the audience already lives in.",
+    hero() {
+      const W = 1280;
+      html(`<div class="tt" style="font-size:15px;color:#8a8a8a;display:flex;justify-content:space-between;width:${W - 560}px"><span>CLAUDE-SIDEBAR(1)</span><span>cmux manual</span><span>CLAUDE-SIDEBAR(1)</span></div>`, "left:56px;top:34px");
+      html(`<div class="tt" style="font-size:54px;font-weight:700;color:#fff">claude-sidebar<span style="color:#F5A524">█</span></div>`, "left:56px;top:84px");
+      html(`<div class="tt" style="font-size:17px;line-height:1.65"><b>NAME</b>
+    claude-sidebar - every Claude Code agent at a glance
+
+<b>SYNOPSIS</b>
+    <span style="color:#8a8a8a">$</span> curl -fsSL …/install.sh | bash
+
+<b>DESCRIPTION</b>
+    Sorts cmux workspaces by what they need from you:
+    <span style="color:#F5A524">needs you</span>  <span style="color:#4C9EEB">new</span>  <span style="color:#9B7BFF">working</span>  <span style="color:#34C759">done</span>  <span style="color:#8E8E93">sleeping</span>
+    Shows your 5-hour Claude limit. Lives in cmux's sidebar.</div>`, "left:56px;top:170px");
+      html(`<div class="tt" style="font-size:15px;color:#6a6a6a">GPL-3.0                    github.com/sahneo/cmux-claude-sidebar</div>`, "left:56px;top:590px");
+      html(octoText("work", 1, 5.2), "left:650px;top:80px");
+      html(`<i>┤ agent-status ├</i>`, "left:880px;top:20px;width:256px;height:606px").className = "tframe";
+      put(sidebar(heroWorld(), 0.2, 628, null, { solo: true }), 891, 31, 0.93);
+    },
+    poster() {
+      html(`<div class="tt" style="font-size:28px;color:#8a8a8a;display:flex;justify-content:space-between;width:960px"><span>CLAUDE-SIDEBAR(1)</span><span>CLAUDE-SIDEBAR(1)</span></div>`, "left:60px;top:50px");
+      html(`<div class="tt" style="font-size:76px;font-weight:700;color:#fff;line-height:1.1">every claude<br>code agent,<br>at a glance<span style="color:#F5A524">█</span></div>`, "left:60px;top:120px");
+      html(`<div class="tt" style="font-size:28px;line-height:1.6"><b>SYNOPSIS</b>
+  <span style="color:#8a8a8a">$</span> curl … | bash
+
+<b>SECTIONS</b>
+  <span style="color:#F5A524">needs you</span>
+  <span style="color:#4C9EEB">new</span>
+  <span style="color:#9B7BFF">working</span>
+  <span style="color:#34C759">done</span>
+  <span style="color:#8E8E93">sleeping</span></div>`, "left:60px;top:440px");
+      html(octoText("needs", 1, 8), "left:66px;top:1010px");
+      html(`<div class="tt" style="font-size:28px;color:#6a6a6a">github.com/sahneo/cmux-claude-sidebar</div>`, "left:60px;top:1270px");
+      html(`<i style="font-size:22px">┤ agent-status ├</i>`, "left:556px;top:440px;width:334px;height:786px").className = "tframe";
+      put(sidebar(heroWorld(), 0.2, 628, null, { solo: true }), 572, 456, 1.2);
+    },
+  },
+
+  manual: {
+    label: "Field manual",
+    why: "Teenage Engineering's OP-1 guide and Braun manuals: light grey, numbered callouts and mono labels that explain the panel instead of decorating it.",
+    fade: "#E4E4E0",
+    // The four things the banner and poster point at, on a calm panel: [label, text, point].
+    marks: [
+      ["Needs you", "Asks for permission?<br>It jumps to the top.", (w) => ({ x: 247, y: rowMid(w, "pay") })],
+      ["New", "Done while you were away.<br>Stays here until you look.", (w) => ({ x: 247, y: rowMid(w, "copy") })],
+      ["12/16", "Background agents count<br>as work, 12 of 16 done.", (w) => ({ x: 247, y: rowMid(w, "mono") - 3 })],
+      ["5-hour limit", "Your limit and its reset,<br>without opening Claude.", (w, h) => ({ x: 247, y: cardY(h) + 51 })],
+    ],
+    hero() {
+      html(`<div class="mono-l" style="color:#555">Model CS-1 · for cmux ≥ 0.65</div>
+        <div style="margin-top:18px;font:500 56px/1.02 'Helvetica Neue';letter-spacing:-0.025em">Claude sidebar<br>for cmux</div>
+        <div style="margin-top:18px;font:400 19px/1.45 'Helvetica Neue';color:#333">Every Claude Code agent at a glance.</div>`, "left:56px;top:150px");
+      html(`<div class="mono-l" style="color:#555">github.com/sahneo/cmux-claude-sidebar</div>`, "left:56px;top:572px");
+      const w = calmWorld(), h = calmHeight(w), px = 492, py = Math.round((640 - h) / 2);
+      put(sidebar(w, 0.2, h, null, { solo: true }), px, py, 1);
+      wires(this.marks.map(([title, text, pt], i) => {
+        const p = pt(w, h), y = py + p.y;
+        html(mark(i + 1, title, text, 16, 22, 12), `left:836px;top:${y - 11}px`);
+        return [{ x: px + p.x, y }, { x: 824, y }];
+      }));
+    },
+    poster() {
+      html(`<div class="mono-l" style="font-size:28px;color:#555">Model CS-1 · for cmux</div>
+        <div style="margin-top:18px;font:500 84px/1 'Helvetica Neue';letter-spacing:-0.03em">Every Claude Code<br>agent, at a glance.</div>
+        <div style="margin-top:20px;font:400 32px 'Helvetica Neue';color:#333">A sidebar for cmux. Free and open source.</div>`, "left:60px;top:64px");
+      const w = calmWorld(), h = calmHeight(w), s = 1.45, px = 60, py = 470, tops = [536, 668, 800, 960];
+      put(sidebar(w, 0.2, h, null, { solo: true }), px, py, s);
+      wires(this.marks.map(([title, text, pt], i) => {
+        const p = pt(w, h), from = { x: px + p.x * s, y: py + p.y * s }, ly = tops[i] + 18;
+        html(mark(i + 1, title, text, 28, 36, 28), `left:540px;top:${tops[i]}px`);
+        return [from, { x: 500, y: from.y }, { x: 500, y: ly }, { x: 530, y: ly }];
+      }), 1, 2);
+      html(`<div class="mono-l" style="font-size:28px;color:#555">github.com/sahneo/cmux-claude-sidebar</div>`, "left:60px;top:1262px");
+    },
+    // Feature loops: no frame of its own, the panel's shadow on the grey is enough.
+    frame(el, r) { el.classList.add("shot"); return { el, r }; },
+    // A note becomes one numbered tag: its areas stay as they are, the rest of the window
+    // goes flat grey, and a leader runs from an orange dot on the first area to the tag.
+    callout({ text, a, target }) {
+      const shot = stage.querySelector(".shot");
+      const holes = target.map((sel) => stageBox([...shot.querySelectorAll(sel)], 3)).filter(Boolean);
+      if (!holes.length) return;
+      const f = stageBox([shot]), x0 = Math.max(0, f.x), y0 = Math.max(0, f.y);
+      greyOut({ x: x0, y: y0, w: Math.min(FW, f.x + f.w) - x0, h: Math.min(FH, f.y + f.h) - y0 }, holes, a);
+      const R = holes[0], wd = 240;
+      const right = R.x + R.w + 24 < FW, left = !right && R.x > 24;
+      const at = { x: right ? R.x + R.w : left ? R.x : R.x + R.w - 16, y: right || left ? R.y + Math.min(R.h, 60) / 2 : R.y };
+      const ex = right ? Math.min(FW - 10, at.x + 14) : left ? Math.max(10, at.x - 14) : at.x;
+      const x = Math.max(8, Math.min(FW - wd - 8, ex - wd + 30));
+      const tag = html(`<span class="num">1</span><div>${text}</div>`, `left:${x}px;top:0;width:${wd}px;opacity:${a}`);
+      tag.className = "dtag";
+      const th = tag.offsetHeight, below = FH - (R.y + R.h) >= R.y;
+      const y = below ? R.y + R.h + 24 : R.y - 24 - th;
+      tag.style.top = y + "px";
+      wires([[at, { x: ex, y: at.y }, { x: ex, y: below ? y : y + th }]], a);
+      stage.appendChild(tag);
+    },
+    // Video: [from, to, areas] per feature scene, as in the balloon look.
+    spots: [null, [5.1, 8.0, ['[data-key="h:needs"], [data-key="pay"]']], [8.4, 12.4, ['[data-key="mono"]']],
+      [12.8, 17.4, [".card"]], [18.3, 20.1, [".chip"]], [21.9, 24.2, [".key"]]],
+    video(t) {
+      stage.innerHTML = "";
+      const vertical = FMT === "9x16", W = vertical ? 1080 : 1920, H0 = vertical ? 1920 : 1080;
+      sizeStage(W, H0);
+      const { w, trans } = worldAt(t, vertical);
+      const scene = [...SCENES].reverse().find((s) => t >= s.at) ?? SCENES[0], si = SCENES.indexOf(scene);
+      const capIn = easeOut(span(t, scene.at + 0.05, scene.at + 0.45));
+      const capA = si === SCENES.length - 1 ? capIn : capIn * (1 - span(t, scene.end - 0.3, scene.end));
+      const winIn = easeOut(span(t, 0.9, 1.9));
+      let zoom = 1;
+      const zs = SCENES.find((s) => s.zoom && t >= s.at - 0.2 && t < s.end + 0.4);
+      if (zs && !vertical) zoom = 1 + 0.4 * easeInOut(span(t, zs.at - 0.2, zs.at + 0.5)) * (1 - easeInOut(span(t, zs.end - 0.2, zs.end + 0.4)));
+      const outro = scene.outro ? easeInOut(span(t, scene.at, scene.at + 0.8)) : 0;
+
+      // The window (16:9) or the panel alone (9:16), with the camera on the card or chip.
+      let el, S, base, fy;
+      if (vertical) {
+        const sbH = 690;
+        el = sidebar(w, t, sbH, trans, { solo: true });
+        S = 1.8 * (1 - outro * 0.2);
+        base = { x: (W - 252 * S) / 2, y: 600 + (1 - winIn) * 80 + outro * 120 };
+        fy = sbH - 90;
+      } else {
+        el = document.createElement("div");
+        el.className = "win";
+        el.style.width = WIN.w + "px"; el.style.height = WIN.h + "px";
+        el.appendChild(sidebar(w, t, WIN.h, trans));
+        el.appendChild(terminal(w, t, scene));
+        S = 1.26;
+        base = { x: 887 + outro * 90, y: (H0 - WIN.h * S) / 2 + (1 - winIn) * 60 };
+        fy = zs?.zoom === "chip" ? WIN.h - 175 : WIN.h - 90;
+      }
+      const f = { x: 130, y: fy }, sc = S * zoom * (1 - (vertical ? 0 : outro * 0.12));
+      el.style.transformOrigin = "0 0";
+      el.style.transform = `translate(${base.x + f.x * S - f.x * sc}px, ${base.y + f.y * S - f.y * sc}px) scale(${sc})`;
+      el.style.opacity = winIn * (1 - outro * 0.55);
+      stage.appendChild(el);
+
+      const fs = vertical ? [80, 64, 30, 22] : [76, 58, 24, 18];
+      const box = vertical ? "left:70px;right:70px;top:110px" : `left:110px;top:${si === 0 || scene.outro ? 300 : 360}px;width:680px`;
+      if (si === 0 || scene.outro) {
+        const d = html(scene.outro
+          ? `<div style="font:500 ${fs[0]}px/1.02 'Helvetica Neue';letter-spacing:-0.03em">Free &amp; open source</div>
+            <div class="mono-l" style="margin-top:24px;font-size:${fs[3] + 4}px">github.com/sahneo/cmux-claude-sidebar</div>
+            <div class="mono-l" style="margin-top:12px;font-size:${fs[3]}px;color:#555">cmux ≥ 0.65 · Claude Code · GPL-3.0</div>`
+          : `<div class="mono-l" style="font-size:${fs[3]}px;color:#555">Model CS-1 · for cmux ≥ 0.65</div>
+            <div style="margin-top:20px;font:500 ${fs[0]}px/1.02 'Helvetica Neue';letter-spacing:-0.03em">Claude sidebar<br>for cmux</div>
+            <div style="margin-top:20px;font:400 ${fs[2]}px/1.4 'Helvetica Neue';color:#333">${scene.sub}</div>`,
+          `${box};opacity:${capA};${vertical ? "text-align:center" : ""}`);
+        const o = octoCanvas(scene.outro ? "party" : "needs", t * 1.6, 6);
+        o.style.margin = vertical ? "0 auto 28px" : "0 0 28px";
+        d.prepend(o);
+      } else {
+        const n = Number(scene.eyebrow), d0 = vertical ? 44 : 40;
+        html(`<div style="display:flex;align-items:center;gap:14px"><span class="num" style="width:${d0}px;height:${d0}px;font-size:${d0 / 2}px">${n}</span>
+            <span class="mono-l" style="font-size:${fs[3]}px">Feature</span><span style="flex:1;height:1px;background:#111"></span></div>
+          <div style="margin-top:22px;font:500 ${fs[1]}px/1.04 'Helvetica Neue';letter-spacing:-0.025em">${scene.title}</div>
+          <div style="margin-top:18px;font:400 ${fs[2]}px/1.4 'Helvetica Neue';color:#333">${scene.sub}</div>`, `${box};opacity:${capA}`);
+        const [a0, b0, target] = this.spots[si];
+        const a = Math.min(capA, noteA(t, a0, b0));
+        const holes = a > 0 ? target.map((sel) => stageBox([...el.querySelectorAll(sel)], 4)).filter(Boolean) : [];
+        if (holes.length) {
+          const fr = stageBox([el]), x0 = Math.max(0, fr.x), y0 = Math.max(0, fr.y);
+          greyOut({ x: x0, y: y0, w: Math.min(W, fr.x + fr.w) - x0, h: Math.min(H0, fr.y + fr.h) - y0 }, holes, a);
+          const R = holes[0], ny = (vertical ? 110 : 360) + d0 / 2;
+          if (vertical) {
+            const at = { x: R.x + R.w, y: R.y + Math.min(R.h, 70) / 2 };
+            wires([[at, { x: 1030, y: at.y }, { x: 1030, y: ny }, { x: 1010, y: ny }]], a, 2);
+          } else {
+            const at = { x: R.x, y: R.y + Math.min(R.h, 70) / 2 }, ex = Math.min(840, at.x - 24);
+            wires([[at, { x: ex, y: at.y }, { x: ex, y: ny }, { x: 790, y: ny }]], a, 2);
+          }
+        }
+      }
+      html("", `left:0;bottom:0;height:4px;width:${W * t / DURATION}px;background:#FF4F00`);
+    },
+    octo(t) {
+      const moods = [["sleep", "nothing going on"], ["idle", "you were just here"], ["work", "agents working"], ["needs", "one waits on you"], ["party", "fresh results"]];
+      sizeStage(moods.length * 170 + 40, 222);
+      stage.innerHTML = "";
+      moods.forEach(([m, label], i) => {
+        const d = html("", `left:${20 + i * 170}px;top:20px;width:170px;text-align:center`);
+        const c = octoCanvas(m, t, 6); c.style.margin = "0 auto";
+        d.appendChild(c);
+        d.insertAdjacentHTML("beforeend", `<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;align-items:center"><span class="num">${i + 1}</span><span class="mono-l" style="font-size:13px">${m}</span></div>
+          <div style="margin-top:6px;font:400 14px 'Helvetica Neue';color:#333">${label}</div>`);
+      });
+    },
+  },
+
+  balloon: {
+    label: "System 1 + Balloon Help",
+    why: "A's 1-bit desktop and pixel type, with D's numbered callouts spoken as Balloon Help (System 7): a few rows, four balloons that say what each part does for you.",
+    fade: "#fff",
+    hero() {
+      macMenu(30, 17);
+      html(`<div class="pix" style="font-size:56px;line-height:1;font-weight:600">Claude sidebar<br>for cmux</div>
+        <div class="geneva" style="margin-top:20px;font-size:21px">Every Claude Code agent at a glance.</div>
+        <div class="pix" style="margin-top:22px;font-size:17px;text-decoration:underline">github.com/sahneo/cmux-claude-sidebar</div>`, "left:48px;top:84px").className = "sys1box";
+      macIcon(220, 430, 4, "Sidebar", 15);
+      const w = calmWorld(), height = 36 + layout(w).height + 12 + H.CARD + 30;
+      const P = macPanel(586, 62, 1.1, 15, w, height);
+      const edge = (y) => ({ x: P.x + 252 * P.s + 2, y: P.y + y * P.s });
+      [
+        [rowMid(w, "pay"), "An agent asks for permission? It jumps to the top."],
+        [rowMid(w, "copy"), "Done while you were away. Stays bold until you look."],
+        [rowMid(w, "mono"), "Background agents count as work: 12 of 16 finished."],
+        [cardY(height) + 51, "Your 5-hour Claude limit, without opening the app."],
+      ].forEach(([y, text], i) => {
+        const tip = bubble(text, 914, 64 + i * 140, 300, 18);
+        callout(i + 1, edge(y), tip);
+      });
+    },
+    // Feature loops: the shot sits in a System 1 window; a region with its top at 0
+    // shows the title bar, a deeper one keeps its framing.
+    frame(el, r) {
+      const T = 28, box = document.createElement("div");
+      box.className = "mwin mframe";
+      box.innerHTML = `<div class="mtitle" style="height:${T}px"><span class="mclose"></span><span class="mname" style="font-size:14px">${el.classList.contains("win") ? "cmux" : "agent-status"}</span></div>`;
+      el.classList.add("shot");
+      box.appendChild(el);
+      return { el: box, r: { x: r.x + 2, y: r.y > 0 ? r.y + 2 + T : r.y, w: r.w, h: r.h } };
+    },
+    // A note becomes one balloon: its areas stay lit, the rest of the window greys out, and
+    // an orange 1 on the first area's edge is wired to the balloon.
+    callout({ text, a, target }) {
+      const shot = stage.querySelector(".shot");
+      const holes = target.map((sel) => stageBox([...shot.querySelectorAll(sel)], 3)).filter(Boolean);
+      if (!holes.length) return;
+      const f = stageBox([shot]), x0 = Math.max(0, f.x), y0 = Math.max(0, f.y);
+      veil({ x: x0, y: y0, w: Math.min(FW, f.x + f.w) - x0, h: Math.min(FH, f.y + f.h) - y0 }, holes, a);
+      const R = holes[0], wd = 256;
+      const right = R.x + R.w + 16 < FW, left = !right && R.x > 16;
+      const at = { x: right ? R.x + R.w : left ? R.x : R.x + R.w - 18, y: right || left ? R.y + Math.min(R.h, 60) / 2 : R.y };
+      const bx = Math.max(8, Math.min(FW - wd - 10, at.x - wd + 48));
+      const tailAt = Math.max(10, Math.min(wd - 44, at.x - bx - 40));
+      const below = FH - (R.y + R.h) >= R.y;
+      const tip = below ? bubble(text, bx, R.y + R.h + 30, wd, 16, "top", a, tailAt) : bubble(text, bx, R.y - 30, wd, 16, "bottom", a, tailAt);
+      callout(1, at, tip, 24, a);
+    },
+    // Video: the scene's caption is the balloon, wired to the part of the window it is about.
+    // [from, to, areas] per feature scene.
+    spots: [null, [5.1, 8.0, ['[data-key="h:needs"], [data-key="pay"]']], [8.4, 12.4, ['[data-key="mono"]']],
+      [12.8, 17.4, [".card"]], [18.3, 20.1, [".chip"]], [21.9, 24.2, [".key"]]],
+    video(t) {
+      stage.innerHTML = "";
+      const vertical = FMT === "9x16", W = vertical ? 1080 : 1920, H0 = vertical ? 1920 : 1080;
+      sizeStage(W, H0);
+      const { w, trans } = worldAt(t, vertical);
+      const scene = [...SCENES].reverse().find((s) => t >= s.at) ?? SCENES[0], si = SCENES.indexOf(scene);
+      const capIn = easeOut(span(t, scene.at + 0.05, scene.at + 0.45));
+      const capA = si === SCENES.length - 1 ? capIn : capIn * (1 - span(t, scene.end - 0.3, scene.end));
+      const winIn = easeOut(span(t, 0.9, 1.9));
+      let zoom = 1;
+      const zs = SCENES.find((s) => s.zoom && t >= s.at - 0.2 && t < s.end + 0.4);
+      if (zs && !vertical) zoom = 1 + 0.4 * easeInOut(span(t, zs.at - 0.2, zs.at + 0.5)) * (1 - easeInOut(span(t, zs.end - 0.2, zs.end + 0.4)));
+      const outro = scene.outro ? easeInOut(span(t, scene.at, scene.at + 0.8)) : 0;
+
+      // The window (16:9) or the panel alone (9:16), framed, with the camera on the card or chip.
+      let el, S, base, fy;
+      if (vertical) {
+        const sbH = 690;
+        el = sidebar(w, t, sbH, trans, { solo: true });
+        S = 1.8 * (1 - outro * 0.2);
+        base = { x: (W - 256 * S) / 2, y: 580 + (1 - winIn) * 80 + outro * 120 };
+        fy = sbH - 90;
+      } else {
+        el = document.createElement("div");
+        el.className = "win";
+        el.style.width = WIN.w + "px"; el.style.height = WIN.h + "px";
+        el.appendChild(sidebar(w, t, WIN.h, trans));
+        el.appendChild(terminal(w, t, scene));
+        S = 1.26;
+        base = { x: 887 + outro * 90, y: 62 + (1 - winIn) * 60 };
+        fy = zs?.zoom === "chip" ? WIN.h - 175 : WIN.h - 90;
+      }
+      const { el: box } = this.frame(el, { x: 0, y: 1, w: 1, h: 1 });
+      const f = { x: 132, y: 30 + fy }, sc = S * zoom * (1 - (vertical ? 0 : outro * 0.12));
+      box.style.transformOrigin = "0 0";
+      box.style.transform = `translate(${base.x + f.x * S - f.x * sc}px, ${base.y + f.y * S - f.y * sc}px) scale(${sc})`;
+      box.style.opacity = winIn * (1 - outro * 0.55);
+      stage.appendChild(box);
+      macMenu(vertical ? 56 : 44, vertical ? 28 : 24);
+
+      const fs = vertical ? [64, 30] : [56, 26];
+      if (si === 0 || scene.outro) {
+        const title = scene.outro ? "Free &amp; open source" : "Claude sidebar<br>for cmux";
+        const sub = scene.outro ? `<div class="pix" style="margin-top:22px;font-size:${fs[1]}px;text-decoration:underline">github.com/sahneo/cmux-claude-sidebar</div>
+          <div class="geneva" style="margin-top:16px;font-size:${fs[1] - 4}px">cmux ≥ 0.65 · Claude Code · GPL-3.0</div>` : `<div class="geneva" style="margin-top:20px;font-size:${fs[1]}px;max-width:620px">${scene.sub}</div>`;
+        const d = html(`<div class="pix" style="font-size:${fs[0] + 16}px;line-height:1;font-weight:600">${title}</div>${sub}`,
+          vertical ? `left:70px;right:70px;top:96px;text-align:center;opacity:${capA}` : `left:90px;top:300px;max-width:780px;opacity:${capA}`);
+        d.className = "sys1box";
+        const o = octoCanvas(scene.outro ? "party" : "needs", t * 1.6, 6);
+        o.style.margin = vertical ? "0 auto 20px" : "0 0 28px";
+        d.prepend(o);
+      } else {
+        const text = `<div style="padding:12px 16px 14px"><div class="pix" style="font-size:${fs[0]}px;line-height:1.05;font-weight:600">${scene.title}</div>
+          <div class="geneva" style="margin-top:16px;font-size:${fs[1]}px;line-height:1.4">${scene.sub}</div></div>`;
+        const tip = vertical ? bubble(text, 70, 520, 940, 16, "bottom", capA, 150) : bubble(text, 90, 330, 720, 16, "right", capA, 40);
+        const [a0, b0, target] = this.spots[si];
+        const a = Math.min(capA, noteA(t, a0, b0));
+        const holes = a > 0 ? target.map((sel) => stageBox([...el.querySelectorAll(sel)], 4)).filter(Boolean) : [];
+        if (holes.length) {
+          const fr = stageBox([el]), x0 = Math.max(0, fr.x), y0 = Math.max(0, fr.y);
+          veil({ x: x0, y: y0, w: Math.min(W, fr.x + fr.w) - x0, h: Math.min(H0, fr.y + fr.h) - y0 }, holes, a);
+          const R = holes[0];
+          callout(Number(scene.eyebrow), { x: R.x, y: R.y + Math.min(R.h, 70) / 2 }, tip, vertical ? 52 : 44, a);
+        }
+      }
+      html("", `left:0;bottom:0;height:6px;width:${W * t / DURATION}px;background:#000`);
+    },
+    poster() {
+      macMenu(56, 28);
+      html(`<div class="pix" style="font-size:76px;line-height:1;font-weight:600">Every Claude Code<br>agent, at a glance</div>
+        <div class="geneva" style="margin-top:22px;font-size:32px">A sidebar for cmux. Free and open source.</div>`, "left:56px;top:106px").className = "sys1box";
+      const w = calmWorld(), height = 36 + layout(w).height + 12 + H.CARD + 30;
+      const P = macPanel(56, 452, 1.45, 26, w, height);
+      const edge = (y) => ({ x: P.x + 252 * P.s + 2, y: P.y + y * P.s });
+      [
+        [rowMid(w, "pay"), "Asks for permission?<br>It jumps to the top."],
+        [rowMid(w, "copy"), "Done while you were away.<br>Bold until you look."],
+        [rowMid(w, "mono"), "Background agents count:<br>12 of 16 finished."],
+        [cardY(height) + 51, "Your 5-hour limit,<br>without opening Claude."],
+      ].forEach(([y, text], i) => callout(i + 1, edge(y), bubble(text, 520, [540, 668, 796, 960][i], 504, 28), 36));
+      macIcon(830, 1150, 6, "Sidebar", 28);
+      html(`<div class="pix" style="font-size:30px;text-decoration:underline;color:#000;background:#fff;padding:6px 10px">github.com/sahneo/cmux-claude-sidebar</div>`, "left:56px;top:1262px");
+    },
+    octo(t) {
+      const moods = [["sleep", "nothing going on"], ["idle", "you were just here"], ["work", "agents working"], ["needs", "one waits on you"], ["party", "fresh results"]];
+      sizeStage(moods.length * 170 + 40, 214);
+      stage.innerHTML = "";
+      moods.forEach(([m, label], i) => {
+        const d = html("", `left:${20 + i * 170}px;top:18px;width:170px;text-align:center`);
+        const c = octoCanvas(m, t, 6); c.style.margin = "0 auto";
+        d.appendChild(c);
+        d.insertAdjacentHTML("beforeend", `<div style="margin-top:12px"><span class="pix" style="background:#000;color:#fff;padding:2px 9px;font-size:17px">${m}</span></div>
+          <div style="margin-top:7px"><span class="geneva" style="background:#fff;color:#000;padding:2px 6px;font-size:13px">${label}</span></div>`);
+      });
+    },
+  },
+};
+
+window.THEMES = Object.fromEntries(Object.entries(THEMES).map(([k, v]) => [k, { label: v.label, why: v.why, poster: !!v.poster }]));
 
 window.seek = (t) => {
   if (MODE === "video") renderVideo(t);
@@ -1069,6 +1704,7 @@ else if (MODE === "window") renderWindow();
 else if (MODE === "cards") renderCards();
 else if (MODE === "octo") renderOcto(0);
 else if (MODE === "poster") renderPoster();
+else if (MODE === "looks") renderLooks();
 window.ready = true;
 </script>
 </body>
