@@ -34,6 +34,16 @@ While a batch of background agents runs, the workspace also gets a "done/total"
 progress bar (cmux set-progress), counted from <session>/subagents/*.meta.json
 started after your last prompt.
 
+Sleeping sessions are closed to free memory and reopened when you come back. A Claude in
+a workspace the sidebar shows under "Sleeping" (no prompt for a day, or parked with
+zz@), on a tab you aren't looking at, idle with an empty prompt and nothing of its own
+running (no Bash-tool shell, no background agents), gets `/exit` typed into it: Claude
+quits the normal way, its conversation stays on disk and the terminal keeps its shell.
+When you open that workspace again, `claude --resume <session> <its flags>` is typed
+into the same terminal. cmux's own Agent Hibernation would do this, but it refuses these
+sessions (lifecycle_unknown, then process_scope_unsafe, 20.10.2026). Run with
+`--dry-run` to see what it would close and reopen without touching anything.
+
 Runs from launchd every 15 s (launchd/com.propeller.cmux-last-prompt.plist); the window
 watcher (scripts/window-watch.swift) calls it with `--window <points>` on every resize.
 """
@@ -41,6 +51,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -62,6 +73,13 @@ SKIN_SCRIPT = os.path.join(os.path.dirname(os.path.realpath(__file__)), "skin.sh
 SKIN_FILE = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "ghostty", "cmux-skin")
 IDLE_GAP = 300   # seconds between transcript entries still counted as time in the session
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
+SLEEP_AFTER = 24 * 3600   # no prompt for this long: the sidebar's "Sleeping" (its INACTIVE_AFTER)
+WAKE_GRACE = 2 * 3600     # a session reopened here isn't closed again for this long
+CLOSE_PER_RUN = 3         # sessions closed per run, so a restart doesn't type into thirty at once
+# Flags carried over when a closed session is reopened, and whether each takes a value.
+# The rest (a first prompt, --resume, --continue, --session-id) belongs to the first launch.
+RESUME_FLAGS = {"--permission-mode": True, "--model": True, "--add-dir": True,
+                "--dangerously-skip-permissions": False}
 
 
 def run(*args):
@@ -71,6 +89,12 @@ def run(*args):
 
 def cmux_json(*args):
     return json.loads(run(CMUX, *args) or "{}")
+
+
+def cmux_ok(*args):
+    """Runs a cmux command for its effect; False when cmux refused it (a draft, a dialog)."""
+    return subprocess.run([CMUX, *args], capture_output=True, text=True, timeout=30,
+                          env={**os.environ, "CMUX_QUIET": "1"}).returncode == 0
 
 
 def prompt_text(entry):
@@ -160,7 +184,9 @@ def hook_sessions():
             records = json.load(f)["sessions"].values()
         return [{"workspace_id": r.get("workspaceId"), "surface_id": r.get("surfaceId"),
                  "transcript_path": r.get("transcriptPath"), "pid": r.get("pid"),
-                 "agent_lifecycle": r.get("agentLifecycle")} for r in records]
+                 "agent_lifecycle": r.get("agentLifecycle"), "session_id": r.get("sessionId"),
+                 "cwd": r.get("cwd"),
+                 "launch_arguments": ((r.get("launchCommand") or {}).get("arguments"))} for r in records]
     except (OSError, ValueError, KeyError, AttributeError):
         return cmux_json("sessions", "list", "--json", "--all").get("sessions", [])
 
@@ -248,6 +274,111 @@ def busy_in_background(session, children, commands, listening):
     return False
 
 
+SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def resume_command(session):
+    """`claude --resume <id>` with the flags the session was first started with, from its
+    folder: Claude finds a conversation by the folder it was started in."""
+    args = (session.get("launch_arguments") or [])[1:]
+    kept, i = [], 0
+    while i < len(args):
+        takes_value = RESUME_FLAGS.get(args[i].split("=")[0])
+        if takes_value and "=" not in args[i] and i + 1 < len(args):
+            kept += args[i:i + 2]
+            i += 2
+            continue
+        if takes_value is not None:
+            kept.append(args[i])
+        i += 1
+    command = " ".join(["claude", "--resume", session["session_id"], *map(shlex.quote, kept)])
+    cwd = session.get("cwd")
+    return f"cd -- {shlex.quote(cwd)} && {command}" if cwd else command
+
+
+def runs_own_work(pid, children, commands):
+    """A Bash-tool shell under Claude, idle or not (a dev server, a watcher): closing
+    Claude would stop it, so such a session stays open."""
+    return any("/.claude/shell-snapshots/" in commands.get(c, "") for c in children.get(pid, []))
+
+
+def input_state(ws, surface):
+    """cmux's view of a terminal: is an agent there, and is its prompt empty."""
+    try:
+        return json.loads(run(CMUX, "rpc", "surface.input_state",
+                              json.dumps({"workspace_id": ws, "surface_id": surface})) or "{}")
+    except ValueError:
+        return {}
+
+
+def close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dry_run):
+    """Closes sleeping Claude sessions and reopens them when you come back (see the top)."""
+    now = time.time()
+    closed = cache.setdefault("_closed", {})   # surface → {"ws", "cmd", "at"}
+    woke = cache.setdefault("_woke", {})       # workspace → when it was reopened here
+    by_id = {w["id"]: w for w in ours}
+
+    for surface, c in list(closed.items()):
+        w = by_id.get(c["ws"])
+        if not w:
+            closed.pop(surface)                # the workspace is gone
+            continue
+        if not w.get("selected"):
+            continue
+        st = input_state(c["ws"], surface)
+        if st.get("agent"):                    # Claude is back already (you, or a cmux restore)
+            closed.pop(surface)
+            continue
+        if not st.get("terminal"):
+            continue                           # its terminal isn't live yet
+        if dry_run:
+            print(f"would reopen  {w.get('title', '')[:40]}: {c['cmd']}")
+            continue
+        if cmux_ok("send", "--workspace", c["ws"], "--surface", surface, c["cmd"]) \
+                and cmux_ok("send-key", "--workspace", c["ws"], "--surface", surface, "enter"):
+            closed.pop(surface)
+            woke[c["ws"]] = now
+
+    left = CLOSE_PER_RUN
+    for s in sessions:
+        ws, surface, pid = s.get("workspace_id"), s.get("surface_id"), s.get("pid")
+        w = by_id.get(ws)
+        if not w or w.get("selected") or w.get("pinned") or not surface or surface in closed:
+            continue
+        if not pid or "claude" not in commands.get(pid, "") or s.get("agent_lifecycle") != "idle" \
+                or not SESSION_ID.fullmatch(s.get("session_id") or ""):
+            continue
+        try:
+            if not os.path.getsize(s.get("transcript_path") or ""):
+                continue
+        except OSError:
+            continue                           # no conversation on disk to resume from
+        # Asleep the way the sidebar sees it: parked by hand, or no prompt for a day.
+        parts = (w.get("description") or "").split(" · ")
+        zz = next((int(p[3:]) for p in parts if p.startswith("zz@")), None)
+        last = latest.get(ws) or 0
+        if not last or "new" in parts or not ((zz and last <= zz) or now - last > SLEEP_AFTER):
+            continue
+        if ws in busy or now - woke.get(ws, 0) < WAKE_GRACE or runs_own_work(pid, children, commands):
+            continue
+        st = input_state(ws, surface)
+        if not st.get("agent") or st.get("state") != "empty" or st.get("waiting_on_human"):
+            continue
+        cmd = resume_command(s)
+        if dry_run:
+            print(f"would close   {w.get('title', '')[:40]} (pid {pid}); reopen with: {cmd}")
+            continue
+        if left == 0:
+            break
+        # cmux types nothing over a draft or into an open dialog.
+        if cmux_ok("send", "--workspace", ws, "--surface", surface, "/exit") \
+                and cmux_ok("send-key", "--workspace", ws, "--surface", surface, "enter"):
+            closed[surface] = {"ws": ws, "cmd": cmd, "at": int(now)}
+            left -= 1
+    for ws in [k for k, at in woke.items() if now - at > WAKE_GRACE]:
+        woke.pop(ws)
+
+
 def rate_limit_token():
     """"lim:<5h %>/<5h reset>/<week %>/<week reset>" from the status line's last known limits."""
     try:
@@ -313,7 +444,7 @@ def swap_owner_token(prefix, value):
         "--action", "set-description", "--description", " · ".join(parts))
 
 
-def main():
+def main(dry_run=False):
     try:
         with open(CACHE) as f:
             cache = json.load(f)
@@ -325,7 +456,8 @@ def main():
     children, commands = process_table()
     listening = listening_pids()
     latest, busy, progress, per_ws = {}, set(), {}, {}
-    for s in hook_sessions():
+    sessions = hook_sessions()
+    for s in sessions:
         ws, path = s.get("workspace_id"), s.get("transcript_path")
         if not ws or not path or not os.path.exists(path):
             continue
@@ -434,6 +566,7 @@ def main():
                 "--action", "set-description", "--description", wanted)
 
     cache["_known"] = sorted(known & {w["id"] for w in ours})   # forget closed workspaces
+    close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dry_run)
     with open(CACHE, "w") as f:
         json.dump(cache, f)
 
@@ -447,4 +580,4 @@ if __name__ == "__main__":
         # quote() keeps spaces and " · " out of the token; the sidebar decodes it.
         set_owner_token("dl:", f"{sys.argv[2]}:{quote(sys.argv[3])}")
     else:
-        main()
+        main(dry_run="--dry-run" in sys.argv)
