@@ -43,6 +43,8 @@ const STRINGS = {
     paste: "Paste", hide: "Hide", closeQ: "Close?",
     focusDone: "Focus done", focusDoneBody: "25 minutes behind you. Take five?",
     resets: (at, left) => "at " + at + " · " + left, resetDone: "limit has reset",
+    skin: "Look", skinNormal: "Normal (glass)", skinSystem1: "System 1 (pixel terminal too)",
+    skinLite: "System 1 lite (terminal keeps its font)",
   },
   uk: {
     pinned: "Закріплені", needs: "Чекає на тебе", unread: "Нове", working: "В роботі", fresh: "Без задачі", done: "Готово", inactive: "Сплять",
@@ -60,6 +62,8 @@ const STRINGS = {
     paste: "Вставити", hide: "Сховати", closeQ: "Закрити?",
     focusDone: "Фокус завершено", focusDoneBody: "25 хвилин позаду. Перерва на п'ять?",
     resets: (at, left) => "о " + at + " · " + left, resetDone: "ліміт оновився",
+    skin: "Вигляд", skinNormal: "Звичайний (скло)", skinSystem1: "System 1 (і піксельний термінал)",
+    skinLite: "System 1 lite (шрифт у терміналі звичайний)",
   },
 };
 const DURATION = { en: ["h", "m"], uk: [" год", " хв"] };
@@ -108,6 +112,292 @@ const languageMenu = () => [
   Button("Українська", () => setLang("uk")),
   Button("English", () => setLang("en")),
 ];
+
+// --- skin --------------------------------------------------------------------------
+// "normal" is the glass look; "system1" and "system1-lite" draw the panel as a 1984
+// Macintosh desktop: 1-bit, dotted, hard shadows, pixel type. The two differ only in
+// the terminal (pixel font or the usual one), which the sync job switches when the
+// "skin:" token changes; scripts/skin.sh does both at once. Light only: System 1 is
+// black ink on white paper whatever the macOS appearance.
+const [skinOverride, setSkinOverride] = signal(null);
+const skin = () => skinOverride() ?? globalToken("skin:")?.v ?? "normal";
+const S1 = () => skin() !== "normal";
+const s1 = (normal, system1) => () => (S1() ? system1 : normal);
+const INK = "#000000";
+const PAPER = "#FFFFFF";
+const CLEAR = "#00000000";
+// Text on System 1 is black, and white on the black selection bar.
+const ink = (selected) => (selected ? PAPER : INK);
+
+function setSkin(name) {
+  setSkinOverride(name);
+  setGlobalToken("skin:", name);
+}
+
+const skinMenu = () => Menu(() => t("skin"), [
+  Button(() => (skin() === "normal" ? "✓ " : "") + t("skinNormal"), () => setSkin("normal")),
+  Button(() => (skin() === "system1" ? "✓ " : "") + t("skinSystem1"), () => setSkin("system1")),
+  Button(() => (skin() === "system1-lite" ? "✓ " : "") + t("skinLite"), () => setSkin("system1-lite")),
+]);
+const panelMenu = () => [...languageMenu(), Divider(), skinMenu()];
+
+// A view that exists only while cond() holds (there is no conditional view helper):
+// a keyed list of one item mounts it, and of none unmounts it.
+const when = (cond, build) => ForEach({ items: () => (cond() ? ["on"] : []), key: (k) => k }, () => build());
+
+// --- pixel type (System 1) ---------------------------------------------------------
+// A sidebar can't load a font, so the pixel type is drawn as rectangles, like the
+// octopus: glyphs from Departure Mono (fonts/, SIL OFL 1.1), 7 px wide, one string per
+// row from 10 px above the baseline to 3 below, "#" for ink. Each run of ink or gap is
+// one rectangle. Regenerate with scripts/pixel-font.py.
+const PIXEL_FONT = {
+  'A': ['', '', '...#', '..#.#', '.#...#', '.#...#', '.#####', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'B': ['', '', '.####', '.#...#', '.#...#', '.####', '.#...#', '.#...#', '.#...#', '.####', '', '', ''],
+  'C': ['', '', '..###', '.#...#', '.#', '.#', '.#', '.#', '.#...#', '..###', '', '', ''],
+  'D': ['', '', '.####', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.####', '', '', ''],
+  'E': ['', '', '.#####', '.#', '.#', '.####', '.#', '.#', '.#', '.#####', '', '', ''],
+  'F': ['', '', '.#####', '.#', '.#', '.####', '.#', '.#', '.#', '.#', '', '', ''],
+  'G': ['', '', '..###', '.#...#', '.#', '.#', '.#..##', '.#...#', '.#...#', '..###', '', '', ''],
+  'H': ['', '', '.#...#', '.#...#', '.#...#', '.#####', '.#...#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'I': ['', '', '.#####', '...#', '...#', '...#', '...#', '...#', '...#', '.#####', '', '', ''],
+  'J': ['', '', '...###', '.....#', '.....#', '.....#', '.....#', '.....#', '.#...#', '..###', '', '', ''],
+  'K': ['', '', '.#...#', '.#..#', '.#.#', '.###', '.#..#', '.#..#', '.#...#', '.#...#', '', '', ''],
+  'L': ['', '', '.#', '.#', '.#', '.#', '.#', '.#', '.#', '.#####', '', '', ''],
+  'M': ['', '', '.#...#', '.#...#', '.##.##', '.#.#.#', '.#.#.#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'N': ['', '', '.#...#', '.#...#', '.##..#', '.#.#.#', '.#..##', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'O': ['', '', '..###', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '..###', '', '', ''],
+  'P': ['', '', '.####', '.#...#', '.#...#', '.#...#', '.####', '.#', '.#', '.#', '', '', ''],
+  'Q': ['', '', '..###', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '..###', '....##', '', ''],
+  'R': ['', '', '.####', '.#...#', '.#...#', '.#...#', '.####', '.#..#', '.#...#', '.#...#', '', '', ''],
+  'S': ['', '', '..###', '.#...#', '.#', '..###', '.....#', '.....#', '.#...#', '..###', '', '', ''],
+  'T': ['', '', '.#####', '...#', '...#', '...#', '...#', '...#', '...#', '...#', '', '', ''],
+  'U': ['', '', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '..###', '', '', ''],
+  'V': ['', '', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '..#.#', '..#.#', '...#', '', '', ''],
+  'W': ['', '', '.#...#', '.#...#', '.#...#', '.#.#.#', '.#.#.#', '..#.#', '..#.#', '..#.#', '', '', ''],
+  'X': ['', '', '.#...#', '.#...#', '..#.#', '...#', '..#.#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'Y': ['', '', '.#...#', '.#...#', '.#...#', '..#.#', '...#', '...#', '...#', '...#', '', '', ''],
+  'Z': ['', '', '.#####', '.....#', '....#', '...#', '..#', '.#', '.#', '.#####', '', '', ''],
+  'a': ['', '', '', '', '..###', '.....#', '..####', '.#...#', '.#..##', '..##.#', '', '', ''],
+  'b': ['', '', '.#', '.#', '.#.##', '.##..#', '.#...#', '.#...#', '.##..#', '.#.##', '', '', ''],
+  'c': ['', '', '', '', '..###', '.#...#', '.#', '.#', '.#...#', '..###', '', '', ''],
+  'd': ['', '', '.....#', '.....#', '..##.#', '.#..##', '.#...#', '.#...#', '.#..##', '..##.#', '', '', ''],
+  'e': ['', '', '', '', '..###', '.#...#', '.#####', '.#', '.#...#', '..###', '', '', ''],
+  'f': ['', '', '...###', '..#', '.#####', '..#', '..#', '..#', '..#', '.####', '', '', ''],
+  'g': ['', '', '', '', '..##.#', '.#..##', '.#...#', '.#...#', '.#..##', '..##.#', '.....#', '..###', ''],
+  'h': ['', '', '.#', '.#', '.#.##', '.##..#', '.#...#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'i': ['', '', '...#', '', '.###', '...#', '...#', '...#', '...#', '.#####', '', '', ''],
+  'j': ['', '', '....#', '', '..###', '....#', '....#', '....#', '....#', '....#', '.#..#', '..##', ''],
+  'k': ['', '', '.#', '.#', '.#...#', '.#..#', '.#.#', '.###', '.#..#', '.#...#', '', '', ''],
+  'l': ['', '', '.###', '...#', '...#', '...#', '...#', '...#', '...#', '.#####', '', '', ''],
+  'm': ['', '', '', '', '.##.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '', '', ''],
+  'n': ['', '', '', '', '.#.##', '.##..#', '.#...#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'o': ['', '', '', '', '..###', '.#...#', '.#...#', '.#...#', '.#...#', '..###', '', '', ''],
+  'p': ['', '', '', '', '.#.##', '.##..#', '.#...#', '.#...#', '.##..#', '.#.##', '.#', '.#', ''],
+  'q': ['', '', '', '', '..##.#', '.#..##', '.#...#', '.#...#', '.#..##', '..##.#', '.....#', '.....#', ''],
+  'r': ['', '', '', '', '.##.##', '..##', '..#', '..#', '..#', '.####', '', '', ''],
+  's': ['', '', '', '', '..###', '.#...#', '..###', '.....#', '.#...#', '..###', '', '', ''],
+  't': ['', '', '..#', '..#', '.#####', '..#', '..#', '..#', '..#..#', '...##', '', '', ''],
+  'u': ['', '', '', '', '.#...#', '.#...#', '.#...#', '.#...#', '.#..##', '..##.#', '', '', ''],
+  'v': ['', '', '', '', '.#...#', '.#...#', '.#...#', '..#.#', '..#.#', '...#', '', '', ''],
+  'w': ['', '', '', '', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '..#.##', '', '', ''],
+  'x': ['', '', '', '', '.#...#', '..#.#', '...#', '..#.#', '.#...#', '.#...#', '', '', ''],
+  'y': ['', '', '', '', '.#...#', '.#...#', '.#...#', '..#.#', '..#.#', '...#', '...#', '.##', ''],
+  'z': ['', '', '', '', '.#####', '....#', '...#', '..#', '.#', '.#####', '', '', ''],
+  '0': ['', '', '..###', '.#...#', '.#..##', '.#.#.#', '.##..#', '.#...#', '.#...#', '..###', '', '', ''],
+  '1': ['', '', '...#', '.###', '...#', '...#', '...#', '...#', '...#', '.#####', '', '', ''],
+  '2': ['', '', '..###', '.#...#', '.....#', '....#', '...#', '..#', '.#', '.#####', '', '', ''],
+  '3': ['', '', '..###', '.#...#', '.....#', '...##', '.....#', '.....#', '.#...#', '..###', '', '', ''],
+  '4': ['', '', '....##', '...#.#', '..#..#', '.#...#', '.#...#', '.#####', '.....#', '.....#', '', '', ''],
+  '5': ['', '', '.#####', '.#', '.#', '.####', '.....#', '.....#', '.#...#', '..###', '', '', ''],
+  '6': ['', '', '..###', '.#...#', '.#', '.####', '.#...#', '.#...#', '.#...#', '..###', '', '', ''],
+  '7': ['', '', '.#####', '.....#', '.....#', '....#', '...#', '..#', '..#', '..#', '', '', ''],
+  '8': ['', '', '..###', '.#...#', '.#...#', '..###', '.#...#', '.#...#', '.#...#', '..###', '', '', ''],
+  '9': ['', '', '..###', '.#...#', '.#...#', '.#...#', '..####', '.....#', '.#...#', '..###', '', '', ''],
+  'А': ['', '', '...#', '..#.#', '.#...#', '.#...#', '.#####', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'Б': ['', '', '.####', '.#', '.#', '.####', '.#...#', '.#...#', '.#...#', '.####', '', '', ''],
+  'В': ['', '', '.####', '.#...#', '.#...#', '.####', '.#...#', '.#...#', '.#...#', '.####', '', '', ''],
+  'Г': ['', '', '.#####', '..#..#', '..#', '..#', '..#', '..#', '..#', '.###', '', '', ''],
+  'Ґ': ['', '.....#', '.#####', '..#..#', '..#', '..#', '..#', '..#', '..#', '.###', '', '', ''],
+  'Д': ['', '', '..####', '..#..#', '..#..#', '..#..#', '..#..#', '.#...#', '.#...#', '#######', '#.....#', '#.....#', ''],
+  'Е': ['', '', '.#####', '.#', '.#', '.####', '.#', '.#', '.#', '.#####', '', '', ''],
+  'Є': ['', '', '..###', '.#...#', '.#', '.###', '.#', '.#', '.#...#', '..###', '', '', ''],
+  'Ж': ['', '', '#..#..#', '.#.#.#', '.#.#.#', '..###', '.#.#.#', '.#.#.#', '.#.#.#', '#..#..#', '', '', ''],
+  'З': ['', '', '..###', '.#...#', '.....#', '...##', '.....#', '.....#', '.#...#', '..###', '', '', ''],
+  'И': ['', '', '.#...#', '.#...#', '.#..##', '.#.#.#', '.##..#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'І': ['', '', '.#####', '...#', '...#', '...#', '...#', '...#', '...#', '.#####', '', '', ''],
+  'Ї': ['..#.#', '', '.#####', '...#', '...#', '...#', '...#', '...#', '...#', '.#####', '', '', ''],
+  'Й': ['..###', '', '.#...#', '.#...#', '.#..##', '.#.#.#', '.##..#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'К': ['', '', '.#...#', '.#..#', '.#..#', '.###', '.#..#', '.#..#', '.#...#', '.#...#', '', '', ''],
+  'Л': ['', '', '..####', '..#..#', '..#..#', '..#..#', '..#..#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'М': ['', '', '.#...#', '.#...#', '.##.##', '.#.#.#', '.#.#.#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'Н': ['', '', '.#...#', '.#...#', '.#...#', '.#####', '.#...#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'О': ['', '', '..###', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '..###', '', '', ''],
+  'П': ['', '', '.#####', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'Р': ['', '', '.####', '.#...#', '.#...#', '.#...#', '.####', '.#', '.#', '.#', '', '', ''],
+  'С': ['', '', '..###', '.#...#', '.#', '.#', '.#', '.#', '.#...#', '..###', '', '', ''],
+  'Т': ['', '', '.#####', '...#', '...#', '...#', '...#', '...#', '...#', '...#', '', '', ''],
+  'У': ['', '', '.#...#', '.#...#', '.#...#', '..#.#', '..#.#', '...#', '...#', '.##', '', '', ''],
+  'Ф': ['', '', '...#', '..###', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '..###', '...#', '', '', ''],
+  'Х': ['', '', '.#...#', '.#...#', '..#.#', '...#', '..#.#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'Ц': ['', '', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.######', '......#', '......#', ''],
+  'Ч': ['', '', '.#...#', '.#...#', '.#...#', '.#..##', '..##.#', '.....#', '.....#', '.....#', '', '', ''],
+  'Ш': ['', '', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#####', '', '', ''],
+  'Щ': ['', '', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.######', '......#', '......#', ''],
+  'Ь': ['', '', '.#', '.#', '.#', '.####', '.#...#', '.#...#', '.#...#', '.####', '', '', ''],
+  'Ю': ['', '', '.#..##', '.#.#..#', '.#.#..#', '.###..#', '.#.#..#', '.#.#..#', '.#.#..#', '.#..##', '', '', ''],
+  'Я': ['', '', '..####', '.#...#', '.#...#', '.#...#', '..####', '..#..#', '.#...#', '.#...#', '', '', ''],
+  'а': ['', '', '', '', '..###', '.....#', '..####', '.#...#', '.#..##', '..##.#', '', '', ''],
+  'б': ['', '', '.....#', '..###', '.#', '.####', '.#...#', '.#...#', '.#...#', '..###', '', '', ''],
+  'в': ['', '', '', '', '.####', '.#...#', '.####', '.#...#', '.#...#', '.####', '', '', ''],
+  'г': ['', '', '', '', '.#####', '..#..#', '..#', '..#', '..#', '.###', '', '', ''],
+  'ґ': ['', '', '', '.....#', '.#####', '..#..#', '..#', '..#', '..#', '.###', '', '', ''],
+  'д': ['', '', '', '', '..####', '..#..#', '..#..#', '..#..#', '.#...#', '#######', '#.....#', '#.....#', ''],
+  'е': ['', '', '', '', '..###', '.#...#', '.#####', '.#', '.#...#', '..###', '', '', ''],
+  'є': ['', '', '', '', '..###', '.#...#', '.###', '.#', '.#...#', '..###', '', '', ''],
+  'ж': ['', '', '', '', '#..#..#', '.#.#.#', '..###', '.#.#.#', '.#.#.#', '#..#..#', '', '', ''],
+  'з': ['', '', '', '', '..###', '.#...#', '...##', '.....#', '.#...#', '..###', '', '', ''],
+  'и': ['', '', '', '', '.#...#', '.#..##', '.#.#.#', '.##..#', '.#...#', '.#...#', '', '', ''],
+  'і': ['', '', '...#', '', '.###', '...#', '...#', '...#', '...#', '.#####', '', '', ''],
+  'ї': ['', '', '..#.#', '', '.###', '...#', '...#', '...#', '...#', '.#####', '', '', ''],
+  'й': ['', '.#...#', '..###', '', '.#...#', '.#..##', '.#.#.#', '.##..#', '.#...#', '.#...#', '', '', ''],
+  'к': ['', '', '', '', '.#...#', '.#..#', '.#.#', '.###', '.#..#', '.#...#', '', '', ''],
+  'л': ['', '', '', '', '..####', '..#..#', '..#..#', '..#..#', '.#...#', '.#...#', '', '', ''],
+  'м': ['', '', '', '', '.#...#', '.##.##', '.#.#.#', '.#.#.#', '.#...#', '.#...#', '', '', ''],
+  'н': ['', '', '', '', '.#...#', '.#...#', '.#####', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'о': ['', '', '', '', '..###', '.#...#', '.#...#', '.#...#', '.#...#', '..###', '', '', ''],
+  'п': ['', '', '', '', '.#####', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '', '', ''],
+  'р': ['', '', '', '', '.#.##', '.##..#', '.#...#', '.#...#', '.##..#', '.#.##', '.#', '.#', ''],
+  'с': ['', '', '', '', '..###', '.#...#', '.#', '.#', '.#...#', '..###', '', '', ''],
+  'т': ['', '', '', '', '.#####', '...#', '...#', '...#', '...#', '...#', '', '', ''],
+  'у': ['', '', '', '', '.#...#', '.#...#', '.#...#', '..#.#', '..#.#', '...#', '...#', '.##', ''],
+  'ф': ['', '', '...#', '...#', '..###', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '..###', '...#', '...#', ''],
+  'х': ['', '', '', '', '.#...#', '..#.#', '...#', '..#.#', '.#...#', '.#...#', '', '', ''],
+  'ц': ['', '', '', '', '.#...#', '.#...#', '.#...#', '.#...#', '.#...#', '.######', '......#', '......#', ''],
+  'ч': ['', '', '', '', '.#...#', '.#...#', '.#..##', '..##.#', '.....#', '.....#', '', '', ''],
+  'ш': ['', '', '', '', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#####', '', '', ''],
+  'щ': ['', '', '', '', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.#.#.#', '.######', '......#', '......#', ''],
+  'ь': ['', '', '', '', '.#', '.#', '.####', '.#...#', '.#...#', '.####', '', '', ''],
+  'ю': ['', '', '', '', '.#..##', '.#.#..#', '.###..#', '.#.#..#', '.#.#..#', '.#..##', '', '', ''],
+  'я': ['', '', '', '', '..####', '.#...#', '.#...#', '..####', '..#..#', '.#...#', '', '', ''],
+  ' ': [],
+  '.': ['', '', '', '', '', '', '', '', '...#', '...#', '', '', ''],
+  ',': ['', '', '', '', '', '', '', '', '...#', '...#', '..#', '', ''],
+  ':': ['', '', '', '', '...#', '...#', '', '', '...#', '...#', '', '', ''],
+  ';': ['', '', '', '', '...#', '...#', '', '', '...#', '...#', '..#', '', ''],
+  '!': ['', '', '...#', '...#', '...#', '...#', '...#', '...#', '', '...#', '', '', ''],
+  '?': ['', '', '..###', '.#...#', '.....#', '....#', '...#', '...#', '', '...#', '', '', ''],
+  '%': ['', '', '..#...#', '.#.#..#', '..#..#', '....#', '...#', '..#..#', '.#..#.#', '.#...#', '', '', ''],
+  '\'': ['', '', '...#', '...#', '...#', '', '', '', '', '', '', '', ''],
+  '’': ['', '', '...#', '...#', '..#', '', '', '', '', '', '', '', ''],
+  '-': ['', '', '', '', '', '', '..###', '', '', '', '', '', ''],
+  '–': ['', '', '', '', '', '', '.#####', '', '', '', '', '', ''],
+  '—': ['', '', '', '', '', '', '#######', '', '', '', '', '', ''],
+  '(': ['', '....#', '...#', '..#', '..#', '..#', '..#', '..#', '..#', '...#', '....#', '', ''],
+  ')': ['', '..#', '...#', '....#', '....#', '....#', '....#', '....#', '....#', '...#', '..#', '', ''],
+  '/': ['', '.....#', '.....#', '....#', '....#', '...#', '...#', '..#', '..#', '.#', '.#', '', ''],
+  '+': ['', '', '', '', '...#', '...#', '.#####', '...#', '...#', '', '', '', ''],
+  '·': ['', '', '', '', '', '...#', '...#', '', '', '', '', '', ''],
+  '…': ['', '', '', '', '', '', '', '', '.#.#.#', '.#.#.#', '', '', ''],
+  '▶': ['', '.#####', '.#...#', '.##.##', '.##.##', '.#.#.#', '.#.#.#', '.##.##', '.##.##', '.#...#', '.#####', '', ''],
+  '■': ['', '', '', '#######', '#######', '#######', '#######', '#######', '#######', '#######', '', '', ''],
+};
+const PIXEL_W = 7;
+
+function pixelRuns(text, px, color) {
+  const glyphs = Array.from(text).map((ch) => PIXEL_FONT[ch] ?? PIXEL_FONT["?"]);
+  let top = 99;
+  let bottom = -1;
+  for (const g of glyphs) {
+    g.forEach((row, y) => {
+      if (row.includes("#")) {
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    });
+  }
+  const rows = [];
+  for (let y = top; y <= bottom; y += 1) {
+    const line = glyphs.map((g) => (g[y] ?? "").padEnd(PIXEL_W, ".")).join("").replace(/\.+$/, "");
+    const runs = [];
+    for (let x = 0; x < line.length;) {
+      let end = x;
+      while (end < line.length && line[end] === line[x]) end += 1;
+      runs.push(Rectangle().fill(line[x] === "#" ? color : CLEAR).frame({ width: (end - x) * px, height: px }));
+      x = end;
+    }
+    rows.push(HStack({ spacing: 0 }, runs.length ? runs : [Rectangle().fill(CLEAR).frame({ width: px, height: px })]));
+  }
+  return VStack({ spacing: 0, alignment: "leading" }, rows).fixedSize();
+}
+
+// Live text redraws only when the string changes (the keyed list compares it); a
+// colour given as a function is read at that redraw.
+const pixelText = (text, px, color) =>
+  ForEach({ items: () => [typeof text === "function" ? text() : text], key: (s) => s },
+    (s) => pixelRuns(s(), px, typeof color === "function" ? color() : color));
+
+// The hard drop shadow: a black strip down the right and along the bottom. Sidebars
+// have no shadow or offset, so the strips are views, and they need the box's height,
+// which is known for everything that gets one (see listHeight()). Zero-size in normal.
+const SHADOW = 2;
+function withShadow(box, heightFn) {
+  return VStack({ spacing: 0, alignment: "leading" }, [
+    HStack({ spacing: 0, alignment: "top" }, [
+      box,
+      VStack({ spacing: 0 }, [
+        Rectangle().fill(CLEAR).frame(() => ({ width: S1() ? SHADOW : 0, height: S1() ? SHADOW : 0 })),
+        Rectangle().fill(INK).frame(() => ({ width: S1() ? SHADOW : 0, height: S1() ? Math.max(0, heightFn() - SHADOW) : 0 })),
+      ]),
+    ]),
+    HStack({ spacing: 0 }, [
+      Rectangle().fill(CLEAR).frame(() => ({ width: SHADOW, height: S1() ? SHADOW : 0 })),
+      Rectangle().fill(INK).frame(() => ({ maxWidth: "infinity", height: S1() ? SHADOW : 0 })),
+    ]),
+  ]);
+}
+
+// The desktop: 1 pt dots on a 2 pt grid (the 25% grey of a 1984 Mac at Retina size),
+// black lines every 2 pt crossed by white ones. Mounted only on System 1; its fixed
+// line counts cover a tall, wide sidebar, and the flexible frame keeps the overflow
+// from sizing anything.
+const DESK_ROWS = 700;
+const DESK_COLS = 260;
+function desktop() {
+  const rows = [];
+  for (let i = 0; i < DESK_ROWS; i += 1) rows.push(Rectangle().fill(INK).frame({ maxWidth: "infinity", height: 1 }));
+  const cols = [];
+  for (let i = 0; i < DESK_COLS; i += 1) cols.push(Rectangle().fill(PAPER).frame({ width: 1, maxHeight: "infinity" }));
+  const fill = { minWidth: 0, maxWidth: "infinity", minHeight: 0, maxHeight: "infinity", alignment: "topLeading" };
+  return ZStack({ alignment: "topLeading" }, [
+    VStack({ spacing: 1 }, rows).frame(fill),
+    HStack({ spacing: 1 }, cols).frame(fill),
+  ])
+    .background(PAPER)
+    .cornerRadius(1)
+    .frame(() => ({ maxWidth: "infinity", height: contentHeight() }));
+}
+
+// A window's title bar: a close box, six stripes and the title in pixel type.
+const TITLE_H = 20;
+function titleBar(title) {
+  const stripes = [];
+  for (let i = 0; i < 6; i += 1) stripes.push(Rectangle().fill(INK).frame({ maxWidth: "infinity", height: 1 }));
+  return VStack({ spacing: 0 }, [
+    ZStack({}, [
+      VStack({ spacing: 1 }, stripes).paddingHorizontal(2),
+      HStack({ spacing: 0 }, [
+        VStack({ spacing: 0 }, [
+          Rectangle().fill(PAPER).borderColor(INK).borderWidth(1).frame({ width: 11, height: 11 }),
+        ]).paddingHorizontal(3).background(PAPER),
+        Spacer(),
+        VStack({ spacing: 0 }, [pixelText(title, 1, INK)]).paddingHorizontal(6).background(PAPER),
+        Spacer(),
+        Rectangle().fill(CLEAR).frame({ width: 17, height: 1 }),
+      ]).paddingHorizontal(6),
+    ]).frame({ maxWidth: "infinity", height: TITLE_H - 1 }),
+    Rectangle().fill(INK).frame({ maxWidth: "infinity", height: 1 }),
+  ]);
+}
 
 const SECTIONS = [
   { id: "pinned", color: GRAY, icon: "pin.fill" },
@@ -371,10 +661,11 @@ const PAGES = ["limit", "focus", "today", "session"];
 const [page, setPage] = signal(0);
 // cmux hands a sidebar no theme value: the card follows light/dark the way the rows
 // do, through a material and the semantic text colours that cmux resolves per theme.
-const CARD_BG = "regularMaterial";
-const CARD_TEXT = "primary";
-const CARD_DIM = "secondary";
-const CARD_TRACK = "#7f7f7f40";
+// Bindings: System 1 draws the card as white paper and black ink; the accents stay.
+const CARD_BG = s1("regularMaterial", PAPER);
+const CARD_TEXT = s1("primary", INK);
+const CARD_DIM = s1("secondary", INK);
+const CARD_TRACK = s1("#7f7f7f40", "#00000026");
 // The card's own accents are mid-tones: the panel's bright green and orange fade out
 // on a light card (1.8:1), these keep at least 3:1 on the card in both themes
 // (measured against #E7E6E6 light and #2A2A2A dark).
@@ -453,6 +744,12 @@ function octoMood() {
   return nowSecs() - last < 1800 ? "idle" : "sleep";
 }
 
+// System 1 draws the octopus as a Susan Kare icon: outline, propeller, cap, eyes,
+// mouth, cheeks and legs in black, the face white paper with the cap's highlight. The
+// legs share the face's colour below the head (rows 13+), so there they turn black too.
+const OCTO_INK = new Set(["k", "b", "p", "c", "e", "m", "h", "s"]);
+const octo1Bit = (c, y) => (c === "." ? CLEAR : OCTO_INK.has(c) || (y >= 13 && c === "r") ? INK : PAPER);
+
 // 2.5 pt = exactly 5 screen pixels on Retina; a fractional pixel (2.75 pt) rounded
 // differently from frame to frame and made the card, and the sidebar, jitter.
 const PIXEL = 2.5;
@@ -467,7 +764,7 @@ function octopus() {
     for (let x = 0; x < 16; x += 1) {
       cells.push(
         Rectangle()
-          .fill(() => OCTO_PALETTE[pixel()[y][x]] ?? "#00000000")
+          .fill(() => (S1() ? octo1Bit(pixel()[y][x], y) : OCTO_PALETTE[pixel()[y][x]] ?? "#00000000"))
           .frame({ width: PIXEL, height: PIXEL })
       );
     }
@@ -486,7 +783,7 @@ function segmentBar(fraction, color, count) {
   for (let i = 0; i < count; i += 1) {
     segs.push(
       Capsule()
-        .fill(() => ((i + 0.5) / count <= fraction() ? color() : CARD_TRACK))
+        .fill(() => ((i + 0.5) / count <= fraction() ? color() : CARD_TRACK()))
         .frame({ maxWidth: "infinity", height: 4 })
     );
   }
@@ -497,8 +794,9 @@ function limitPage() {
   const lim = () => limits();
   return VStack({ spacing: 5 }, [
     HStack({ spacing: 5 }, [
-      Text(() => (lim() ? lim().pct + "%" : "—")).font(22).weight("bold")
-        .color(() => limitColor(lim()?.pct ?? 0)).fixedSize(),
+      when(() => !S1(), () => Text(() => (lim() ? lim().pct + "%" : "—")).font(22).weight("bold")
+        .color(() => limitColor(lim()?.pct ?? 0)).fixedSize()),
+      when(S1, () => pixelText(() => (lim() ? lim().pct + "%" : "—"), 2, () => limitColor(lim()?.pct ?? 0))),
       Text(() => t("limitShort")).font(10).color(CARD_DIM).fixedSize(),
       Spacer({ minLength: 4 }),
       Text(() => (lim() ? t("week") + " " + lim().weekPct + "%" : "")).font(10).color(CARD_DIM).fixedSize(),
@@ -558,13 +856,14 @@ function focusPage() {
   const left = () => focusLeft();
   return VStack({ spacing: 5 }, [
     HStack({ spacing: 6 }, [
-      Text(() => (left() == null ? mmss(FOCUS_SECONDS) : mmss(left()))).font(22).weight("bold")
-        .color(() => (left() == null ? CARD_TEXT : CARD_VIOLET)).fixedSize(),
+      when(() => !S1(), () => Text(() => (left() == null ? mmss(FOCUS_SECONDS) : mmss(left()))).font(22).weight("bold")
+        .color(() => (left() == null ? CARD_TEXT() : CARD_VIOLET)).fixedSize()),
+      when(S1, () => pixelText(() => (left() == null ? mmss(FOCUS_SECONDS) : mmss(left())), 2, INK)),
       Spacer({ minLength: 4 }),
       Text(() => (left() == null ? "▶ " + t("start") : "■ " + t("stop")))
-        .font(11).weight("semibold").color(() => (left() == null ? "#FFFFFF" : CARD_TEXT))
+        .font(11).weight("semibold").color(() => (left() == null ? "#FFFFFF" : CARD_TEXT()))
         .paddingHorizontal(10).paddingVertical(4)
-        .background(() => (left() == null ? VIOLET : CARD_TRACK))
+        .background(() => (left() == null ? VIOLET : CARD_TRACK()))
         .cornerRadius(10)
         .fixedSize()
         .cursor("pointer")
@@ -615,7 +914,7 @@ function sessionPage() {
 function pageDots() {
   const dots = PAGES.map((_, i) =>
     Circle()
-      .fill(() => (page() === i ? CARD_TEXT : CARD_TRACK))
+      .fill(() => (page() === i ? CARD_TEXT() : CARD_TRACK()))
       .frame({ width: 5, height: 5 })
       .onTap(() => setPage(i))
   );
@@ -626,7 +925,7 @@ function activityCard() {
   // The outer margin lives on a wrapper: in a JS sidebar the modifiers are props of
   // one node, not layers, so a second .paddingHorizontal would replace the first.
   // 6 pt, like the list's wrapper: the card's edges line up with a row's background.
-  return VStack({ spacing: 0 }, [activityCardBody()])
+  return VStack({ spacing: 0 }, [withShadow(activityCardBody(), () => CARD_BODY_H)])
     .paddingHorizontal(6)
     .paddingTop(6)
     .frame({ maxWidth: "infinity", height: CARD_H });
@@ -652,17 +951,21 @@ function activityCardBody() {
     .paddingHorizontal(14)
     .paddingVertical(14)
     .background(CARD_BG)
-    .borderColor("#7f7f7f26")
+    .borderColor(s1("#7f7f7f26", INK))
     .borderWidth(1)
-    .cornerRadius(22)
-    .frame({ maxWidth: "infinity" })
+    .cornerRadius(s1(22, 0))
+    // Its natural height, stated so System 1's shadow knows it.
+    .frame({ maxWidth: "infinity", height: CARD_BODY_H })
     .cursor("pointer")
     .onTap(() => setPage((page() + 1) % PAGES.length))
-    .contextMenu(languageMenu());
+    .contextMenu(panelMenu());
 }
 
 // --- views -------------------------------------------------------------------------
-function stateIcon(st) {
+// sel: whether the row is the selected one. System 1 keeps the colours and draws the
+// grey icons in ink, white on its black selection bar.
+function stateIcon(st, sel = () => false) {
+  const tint = (color) => () => (S1() ? ink(sel()) : color);
   return ZStack({}, [
     Image("progress.indicator")
       .font(12).weight("bold")
@@ -676,10 +979,10 @@ function stateIcon(st) {
       .font(13).color(BLUE)
       .opacity(() => (st().kind === "unread" ? 1 : 0)),
     Image("checkmark")
-      .font(10).weight("semibold").color("tertiary")
+      .font(10).weight("semibold").color(tint("tertiary"))
       .opacity(() => (st().kind === "done" ? 1 : 0)),
     Image("moon.fill")
-      .font(10).color("tertiary")
+      .font(10).color(tint("tertiary"))
       .opacity(() => (st().kind === "inactive" ? 1 : 0)),
     Image("square.and.pencil")
       .font(10).color(TEAL)
@@ -696,13 +999,14 @@ function progressCounts(w) {
   return m ? { done: Number(m[1]), total: Math.min(Number(m[2]), MAX_SEGMENTS) } : null;
 }
 
-function progressSegments(w) {
+function progressSegments(w, sel = () => false) {
   const segs = [];
   for (let i = 0; i < MAX_SEGMENTS; i += 1) {
     segs.push(
       Capsule()
         .fill(() => {
           const p = progressCounts(w());
+          if (S1() && !(p && i < p.done)) return sel() ? "#FFFFFF59" : "#00000033";
           return p && i < p.done ? SPINNER_COLORS[i % SPINNER_COLORS.length] : "#7f7f7f40";
         })
         .frame(() => ({ width: (progressCounts(w())?.total ?? 0) > i ? 7 : 0, height: 3 }))
@@ -734,11 +1038,11 @@ function tabRow(entry) {
       .weight(() => (st().kind === "unread" ? "semibold" : "regular"))
       .lineLimit(1)
       .truncation("tail")
-      .color(() => (isCurrent() ? "primary" : "secondary")),
+      .color(() => (S1() ? ink(isCurrent()) : (isCurrent() ? "primary" : "secondary"))),
     Spacer({ minLength: 0 }),
     HStack({ spacing: 8 }, [
-      Text(() => (st().kind === "none" ? "" : ago(st().since))).font(11).color("tertiary"),
-      stateIcon(st).opacity(() => (st().kind === "none" ? 0 : 1)),
+      Text(() => (st().kind === "none" ? "" : ago(st().since))).font(11).color(() => (S1() ? ink(isCurrent()) : "tertiary")),
+      stateIcon(st, isCurrent).opacity(() => (st().kind === "none" ? 0 : 1)),
     ])
       .fixedSize()
       .layoutPriority(2),
@@ -746,9 +1050,9 @@ function tabRow(entry) {
     .paddingLeading(18)
     .paddingTrailing(10)
     .paddingVertical(3)
-    .cornerRadius(6)
-    .background(() => (isCurrent() ? "#7f7f7f24" : (st().kind === "unread" ? "#4C9EEB1c" : null)))
-    .hoverBackground("#7f7f7f1c")
+    .cornerRadius(s1(6, 0))
+    .background(() => (S1() ? (isCurrent() ? INK : null) : isCurrent() ? "#7f7f7f24" : (st().kind === "unread" ? "#4C9EEB1c" : null)))
+    .hoverBackground(s1("#7f7f7f1c", "#0000001A"))
     .frame({ maxWidth: "infinity", height: TAB_H })
     .fixed()
     .onTap(() => {
@@ -783,6 +1087,8 @@ function openHereMenu(w) {
 }
 
 function rowBackground(w, st, hover) {
+  // System 1: the selection is a black bar; new results show by their bold title.
+  if (S1()) return isSelected(w) ? INK : hover ? "#0000001A" : null;
   if (isSelected(w)) return "#7f7f7f3d";
   if (st.kind === "unread") return hover ? "#4C9EEB38" : "#4C9EEB24";
   return hover ? "#7f7f7f24" : null;
@@ -818,13 +1124,14 @@ function workspaceRow(w) {
           .lineLimit(1)
           .truncation("tail")
           .marquee()
-          .color(() => (st().kind === "inactive" && !isSelected(w()) ? "tertiary" : "primary")),
+          .color(() => (S1() ? (st().kind === "inactive" && !isSelected(w()) ? "#00000080" : ink(isSelected(w())))
+            : st().kind === "inactive" && !isSelected(w()) ? "tertiary" : "primary")),
         Spacer({ minLength: 0 }),
         HStack({ spacing: 8 }, [
           Text(() => w()?.progress?.label ?? ago(st().since))
             .font(12)
-            .color(() => (st().kind === "needs" ? ORANGE : (st().kind === "unread" ? BLUE : "secondary"))),
-          stateIcon(st),
+            .color(() => (st().kind === "needs" ? ORANGE : st().kind === "unread" ? BLUE : S1() ? ink(isSelected(w())) : "secondary")),
+          stateIcon(st, () => isSelected(w())),
         ])
           .fixedSize()
           .layoutPriority(2)
@@ -832,7 +1139,7 @@ function workspaceRow(w) {
           .hideOnHover(),
       ])
         .frame({ maxWidth: "infinity" }),
-      progressSegments(w),
+      progressSegments(w, () => isSelected(w())),
     ]),
     // Close asks first, like Cmd+W: the first click turns into a red "Close?",
     // the second closes. Either control closes while asking, so it doesn't matter
@@ -842,13 +1149,13 @@ function workspaceRow(w) {
       Text(() => t("closeQ"))
         .font(11).weight("semibold").color("#FFFFFF")
         .paddingHorizontal(8).paddingVertical(2)
-        .background(RED)
-        .cornerRadius(8)
+        .background(s1(RED, INK))
+        .cornerRadius(s1(8, 0))
         .fixedSize()
         .opacity(() => (isConfirmingClose(w()) ? 1 : 0))
         .onTap(() => closeWorkspace(w().id)),
       Image("xmark")
-        .font(9).weight("semibold").color("secondary")
+        .font(9).weight("semibold").color(() => (S1() ? ink(isSelected(w())) : "secondary"))
         .padding(4)
         .cornerRadius(9)
         .hoverBackground("#7f7f7f4a")
@@ -859,9 +1166,9 @@ function workspaceRow(w) {
   ])
     .paddingHorizontal(10)
     .paddingVertical(6)
-    .cornerRadius(8)
-    .background(() => (isConfirmingClose(w()) ? "#FF453A26" : rowBackground(w(), st(), false)))
-    .hoverBackground(() => (isConfirmingClose(w()) ? "#FF453A33" : rowBackground(w(), st(), true)))
+    .cornerRadius(s1(8, 0))
+    .background(() => (isConfirmingClose(w()) ? (S1() ? "#00000026" : "#FF453A26") : rowBackground(w(), st(), false)))
+    .hoverBackground(() => (isConfirmingClose(w()) ? (S1() ? "#00000033" : "#FF453A33") : rowBackground(w(), st(), true)))
     .frame(() => ({ maxWidth: "infinity", height: progressCounts(w()) ? ROW_PROGRESS_H : ROW_H }))
     .onTap(() => {
       cancelClose();
@@ -897,7 +1204,7 @@ function sectionHeader(id) {
   const s = SECTIONS.find((x) => x.id === id);
   const isFirst = () => flatEntries()[0]?.id === "h:" + id;
   return HStack({ spacing: 6 }, [
-    HStack({ spacing: 5 }, [
+    when(() => !S1(), () => HStack({ spacing: 5 }, [
       Image(s.icon).font(10).color(s.color),
       Text(() => t(id)).font(12).weight("semibold").color(s.color),
       Text(() => String(sectionCount(id))).font(11).weight("bold").color(s.color).opacity(0.7),
@@ -906,10 +1213,20 @@ function sectionHeader(id) {
       .paddingVertical(4)
       .background(s.color + "26")
       .cornerRadius(11)
-      .fixedSize(),
+      .fixedSize()),
+    // System 1: the same coloured pill, its name and count in pixel type.
+    when(S1, () => HStack({ spacing: 5 }, [
+      Image(s.icon).font(10).color(s.color),
+      pixelText(() => t(id) + " " + sectionCount(id), 1, s.color),
+    ])
+      .paddingHorizontal(9)
+      .paddingVertical(5)
+      .background(s.color + "26")
+      .cornerRadius(11)
+      .fixedSize()),
     Spacer(),
     Image("chevron.right")
-      .font(9).weight("semibold").color("tertiary")
+      .font(9).weight("semibold").color(s1("tertiary", INK))
       .rotation(() => (collapsed()[id] ? 0 : 90))
       .frame({ width: 14, height: 14 }),
   ])
@@ -921,13 +1238,13 @@ function sectionHeader(id) {
     .fixed()
     .cursor("pointer")
     .onTap(() => toggleSection(id))
-    .contextMenu(languageMenu());
+    .contextMenu(panelMenu());
 }
 
 function moreRow(entry) {
   return HStack({ spacing: 6 }, [
-    Text(() => t("more")(entry.count)).font(12).color("secondary"),
-    Image("chevron.down").font(9).weight("semibold").color("tertiary"),
+    Text(() => t("more")(entry.count)).font(12).color(s1("secondary", INK)),
+    Image("chevron.down").font(9).weight("semibold").color(s1("tertiary", INK)),
     Spacer(),
   ])
     .paddingHorizontal(10)
@@ -963,6 +1280,7 @@ const ROW_H = 30;
 const ROW_PROGRESS_H = 37;
 const TAB_H = 22;
 const CARD_H = 108;
+const CARD_BODY_H = 99;
 const LIST_SPACING = 2;
 const SIDEBAR_CHROME = 82;   // title bar above the list, the footer buttons below it, and a few points of slack
                              // so rounding never makes the sidebar scroll (a scroll bar shows on its edge).
@@ -988,8 +1306,15 @@ function spacerHeight() {
   if (!win) return 12;
   // Root children: list, spacer, chip, card; the hidden chip keeps its gaps.
   const chip = latestDownload() ? DL_H : 0;
-  return Math.max(12, win - SIDEBAR_CHROME - listHeight() - chip - CARD_H - 3 * 2);
+  // System 1 puts the list in a window: a title bar on top, a shadow below.
+  const frame = S1() ? TITLE_H + SHADOW : 0;
+  return Math.max(12, win - SIDEBAR_CHROME - listHeight() - frame - chip - CARD_H - 3 * 2);
 }
+
+// Everything above stacked: the sidebar scrolls, so System 1's desktop gets this
+// height, or its flexible frame would take its full line count.
+const contentHeight = () =>
+  TITLE_H + SHADOW + listHeight() + spacerHeight() + (latestDownload() ? DL_H : 0) + CARD_H + 3 * 2;
 
 // --- latest download ---------------------------------------------------------------
 // A screenshot AirDropped from the iPhone lands in ~/Downloads; the watcher reports
@@ -1039,10 +1364,10 @@ function downloadChip() {
   const isImage = () => /\.(png|jpe?g|heic|gif|webp|tiff?)$/i.test(d()?.name ?? "");
   const body = HStack({ spacing: 8 }, [
     Image(() => (isImage() ? "photo" : "doc")).font(12).color(BLUE),
-    Text(() => d()?.name ?? "").font(12).color("primary").lineLimit(1).truncation("middle"),
+    Text(() => d()?.name ?? "").font(12).color(s1("primary", INK)).lineLimit(1).truncation("middle"),
     Spacer({ minLength: 4 }),
     ZStack({}, [
-      Text(() => (d() ? ago(d().at) : "")).font(11).color("secondary").fixedSize().hideOnHover(),
+      Text(() => (d() ? ago(d().at) : "")).font(11).color(s1("secondary", INK)).fixedSize().hideOnHover(),
       Image("xmark")
         .font(9).weight("semibold").color("secondary")
         .padding(4)
@@ -1055,9 +1380,11 @@ function downloadChip() {
   ])
     .paddingHorizontal(12)
     .paddingVertical(8)
-    .background("#4C9EEB1f")
-    .hoverBackground("#4C9EEB33")
-    .cornerRadius(12)
+    .background(s1("#4C9EEB1f", PAPER))
+    .hoverBackground(s1("#4C9EEB33", "#4C9EEB1f"))
+    .borderColor(s1(CLEAR, INK))
+    .borderWidth(s1(0, 1))
+    .cornerRadius(s1(12, 0))
     .frame({ maxWidth: "infinity" })
     .cursor("pointer")
     .onTap(pasteDownload)
@@ -1070,10 +1397,11 @@ function downloadChip() {
 }
 
 // --- root --------------------------------------------------------------------------
-sidebar(() =>
-  VStack({ spacing: 2 }, [
-    // Wrapper for a side margin, so a selected row doesn't touch the terminal.
-    VStack({ spacing: 0 }, [Reorderable(
+// The list; on System 1 a window with a title bar, a 1 pt border and a hard shadow.
+function listWindow() {
+  const list = VStack({ spacing: 0 }, [
+    when(S1, () => titleBar("agent-status")),
+    Reorderable(
       { items: flatEntries, key: (e) => e.id, spacing: 2, onMove: handleMove },
       (e) => {
         const entry = e(); // kind, ids and editing are stable per key
@@ -1083,11 +1411,25 @@ sidebar(() =>
         const w = () => (data.workspaces() ?? []).find((x) => x.id === entry.wsId);
         return entry.editing ? workspaceEditRow(w) : workspaceRow(w);
       }
-    )]).paddingHorizontal(6),
-    // The spacer's binding also keeps cmux's order in step with the sidebar.
-    Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacerHeight() + syncOrder() })),
-    downloadChip(),
-    activityCard(),
+    ),
+  ])
+    .background(s1(null, PAPER))
+    .borderColor(s1(CLEAR, INK))
+    .borderWidth(s1(0, 1));
+  return withShadow(list, () => TITLE_H + listHeight());
+}
+
+sidebar(() =>
+  ZStack({ alignment: "top" }, [
+    when(S1, desktop),
+    VStack({ spacing: 2 }, [
+      // Wrapper for a side margin, so a selected row doesn't touch the terminal.
+      VStack({ spacing: 0 }, [listWindow()]).paddingHorizontal(6),
+      // The spacer's binding also keeps cmux's order in step with the sidebar.
+      Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacerHeight() + syncOrder() })),
+      downloadChip(),
+      activityCard(),
+    ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),
   ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),
   { surface: "glass" }
 )

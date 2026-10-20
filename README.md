@@ -117,6 +117,42 @@ Click the card or a dot to flip pages.
 
 </details>
 
+### A System 1 skin
+
+The whole of cmux as a 1984 Macintosh (Susan Kare's): a dotted desktop, 1 pt black
+frames with hard shadows, pixel type and a 1-bit octopus around the panel's own coloured
+sections, and a 1-bit terminal with no glass. One command switches, no restart:
+
+```sh
+scripts/skin.sh system1        # pixel type in the terminal too
+scripts/skin.sh system1-lite   # the terminal keeps your font (long answers read easier)
+scripts/skin.sh normal         # back to the usual look
+scripts/skin.sh uninstall      # normal, and ~/.config/ghostty/config exactly as before
+```
+
+Or right-click a section header or the card → **Look** (the terminal follows within
+15 s, through the sync job).
+
+<details>
+<summary>How it works, and what it can't skin</summary>
+
+- **Terminal**: `skin.sh` adds one optional include to `~/.config/ghostty/config`
+  (`config-file = ?cmux-skin`, after a backup to `config.before-skin`) and fills
+  `~/.config/ghostty/cmux-skin` from `config/skins/`; for normal the file is empty, so
+  the result is your own config. Then `cmux reload-config`.
+- **Pixel font**: [Departure Mono](https://departuremono.com) (SIL OFL 1.1, in `fonts/`),
+  which has the whole Ukrainian alphabet; `skin.sh system1` installs it. A cmux sidebar
+  can't load fonts, so the panel draws the same glyphs as rectangles
+  (`scripts/pixel-font.py` regenerates the table).
+- **Light only**: System 1 is black ink on white paper whatever the macOS appearance.
+- **Colour that stays**: Claude Code's own 24-bit colours (diff backgrounds, the orange
+  logo) bypass the terminal palette. `/theme` → a "light, ANSI colours only" theme makes
+  Claude 1-bit too.
+- **Not skinned**: the window frame, tab strip, title bar and the sidebar's footer
+  buttons are native macOS.
+
+</details>
+
 ## Install
 
 Needs macOS. One command:

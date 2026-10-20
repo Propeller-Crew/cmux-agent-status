@@ -1,0 +1,36 @@
+# System 1 lite: the terminal as a 1984 Macintosh, 1-bit black ink on white paper,
+# in your usual font. scripts/skin.sh copies this to ~/.config/ghostty/cmux-skin, which
+# ~/.config/ghostty/config includes last, so these lines win.
+
+# Opaque paper: no glass.
+background-opacity = 1
+background-blur = false
+background = #FFFFFF
+foreground = #000000
+cursor-color = #000000
+cursor-text = #FFFFFF
+selection-background = #000000
+selection-foreground = #FFFFFF
+
+# 1-bit, with greys so colours that differ still differ (System 1 drew dimmed things
+# in dithered grey): red, blue and magenta print black; green, yellow and cyan grey.
+palette = 0=#000000
+palette = 1=#000000
+palette = 2=#555555
+palette = 3=#555555
+palette = 4=#000000
+palette = 5=#000000
+palette = 6=#555555
+palette = 7=#AAAAAA
+palette = 8=#777777
+palette = 9=#000000
+palette = 10=#555555
+palette = 11=#555555
+palette = 12=#000000
+palette = 13=#000000
+palette = 14=#555555
+palette = 15=#FFFFFF
+
+# Programs written for a dark terminal print white text; Ghostty flips any text that
+# would vanish against its background.
+minimum-contrast = 3
