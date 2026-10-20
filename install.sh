@@ -18,7 +18,8 @@
 #
 #   --dry-run       show what would change and write nothing
 #   --install-cmux  install cmux with Homebrew if it's missing, without asking
-#   --glass         also make the terminal glass, without asking (--no-glass: skip it)
+#   --glass         also make the sidebar glass next to a solid terminal, without asking
+#                   (--no-glass: skip it)
 #   --master        follow master, the newest and least tried (CMUX_CLAUDE_SIDEBAR_CHANNEL=master);
 #                   --releases goes back to releases. The choice stays with the clone.
 #   --no-launchd    don't load the background jobs (for testing in a throwaway HOME)
@@ -278,19 +279,21 @@ statusline() {
   esac
 }
 
-# Optional: a translucent terminal with blur, through Ghostty's config (cmux reads it).
+# Optional: a glass sidebar the desktop shows through, next to a solid terminal. The glass
+# is cmux's sidebar material; Ghostty's config (cmux reads it) keeps the terminal opaque.
+# An earlier install's "glass terminal" block stays: the new block comes after it and wins.
 glass() {
   if [ "$GLASS" = ask ]; then
     printf '\n'
-    if ask "Also make the terminal glass (translucent with blur)?"; then GLASS=yes; else GLASS=no; fi
+    if ask "Also make the sidebar glass (the desktop shows through it, the terminal stays solid)?"; then GLASS=yes; else GLASS=no; fi
   fi
   if [ "$GLASS" != yes ]; then
     say "  no glass (add it any time: install.sh --glass)"
     return 0
   fi
-  step "Glass terminal"
+  step "Glass sidebar"
   g=$HOME/.config/ghostty/config
-  marker="# cmux-claude-sidebar: glass terminal"
+  marker="# cmux-claude-sidebar: glass sidebar, solid terminal"
   if [ -f "$g" ] && grep -qF "$marker" "$g"; then
     say "  already in $g"
   elif [ "$DRY" = 1 ]; then
@@ -305,8 +308,27 @@ glass() {
     fi
     { printf '\n%s\n' "$marker"; cat "$REPO/config/ghostty.config"; } >> "$g"
   fi
+  # The soft themes the block names; a theme of the same name the person has stays.
+  for t in cmux-soft-light cmux-soft-dark; do
+    if [ -e "$HOME/.config/ghostty/themes/$t" ]; then
+      say "  kept your ~/.config/ghostty/themes/$t"
+    else
+      run mkdir -p "$HOME/.config/ghostty/themes"
+      run cp "$REPO/config/themes/$t" "$HOME/.config/ghostty/themes/$t"
+    fi
+  done
+  # A theme picked in cmux's Settings → Themes lives in cmux's own Ghostty file, read after
+  # ~/.config/ghostty/config, and wins over the soft one.
+  cg="$HOME/Library/Application Support/com.cmuxterm.app/config.ghostty"
+  if [ -f "$cg" ] && grep -q '^theme *=' "$cg" && ! grep -q 'cmux-soft-light' "$cg"; then
+    todo "For the soft terminal colours, change the theme line in $cg to: theme = light:cmux-soft-light,dark:cmux-soft-dark (cmux's Settings → Themes wrote it, and it wins over ~/.config/ghostty/config)"
+  fi
+  # menu lets the most desktop through while the text stays readable (with the 0.15 tint
+  # from the snippet); active keeps the glass when the window isn't focused, where
+  # followWindow turns the sidebar flat gray.
   run defaults write com.cmuxterm.app sidebarBlendMode -string behindWindow
-  run defaults write com.cmuxterm.app sidebarMaterial -string sidebar
+  run defaults write com.cmuxterm.app sidebarMaterial -string menu
+  run defaults write com.cmuxterm.app sidebarState -string active
 }
 
 activate() {

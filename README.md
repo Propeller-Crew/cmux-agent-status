@@ -166,7 +166,7 @@ Needs macOS. One command:
 curl -fsSL https://raw.githubusercontent.com/sahneo/cmux-claude-sidebar/master/install.sh | bash
 ```
 
-It fetches the latest release into `~/.cmux-claude-sidebar` and offers to install cmux with Homebrew (`brew install --cask cmux`) if it's missing. Then it links the sidebar into `~/.config/cmux` and adds only the missing keys from [`config/cmux.snippet.jsonc`](config/cmux.snippet.jsonc) to your `cmux.json`. It backs the file up first and keeps the values you already set. For the limit card it sets a minimal Claude Code status line if you have none, and if you have your own it shows the two lines to add. Finally it loads two small launchd jobs and selects the sidebar. The glass terminal is a y/N question. To see what it would do without changing anything, run `curl -fsSL … | bash -s -- --dry-run`.
+It fetches the latest release into `~/.cmux-claude-sidebar` and offers to install cmux with Homebrew (`brew install --cask cmux`) if it's missing. Then it links the sidebar into `~/.config/cmux` and adds only the missing keys from [`config/cmux.snippet.jsonc`](config/cmux.snippet.jsonc) to your `cmux.json`. It backs the file up first and keeps the values you already set. For the limit card it sets a minimal Claude Code status line if you have none, and if you have your own it shows the two lines to add. Finally it loads two small launchd jobs and selects the sidebar. The glass sidebar (with a solid terminal) is a y/N question. To see what it would do without changing anything, run `curl -fsSL … | bash -s -- --dry-run`.
 
 ### Or paste this into Claude Code
 
@@ -175,7 +175,7 @@ Install the Claude sidebar for cmux for me by following
 https://github.com/sahneo/cmux-claude-sidebar/blob/master/INSTALL.md
 ```
 
-Claude reads [INSTALL.md](INSTALL.md), shows you the plan, asks about the glass terminal, installs and checks the result.
+Claude reads [INSTALL.md](INSTALL.md), shows you the plan, asks about the glass sidebar, installs and checks the result.
 
 ### By hand
 
@@ -199,7 +199,7 @@ What the script does, if you'd rather do it yourself:
    [ -n "$limits" ] && printf '%s' "$limits" > "$HOME/.claude/rate-limits.json"
    ```
 
-The `automation` socket mode in the snippet is required: the sync job runs from launchd, outside cmux. `config/ghostty.config` is optional: a glass terminal, with extra left padding because a translucent cmux pane shows a 1 pt seam where text would start; it goes to `~/.config/ghostty/config`.
+The `automation` socket mode in the snippet is required: the sync job runs from launchd, outside cmux. `config/ghostty.config` is optional, part of the glass sidebar: it keeps the terminal opaque next to the glass, with a softer background (the themes in `config/themes`, off-white in light mode, dark gray in dark) and some room from the sidebar's edge; it goes to `~/.config/ghostty/config`. The glass itself is cmux's sidebar material (`defaults write com.cmuxterm.app sidebarMaterial -string menu`, `sidebarBlendMode -string behindWindow`, and `sidebarState -string active` so it stays glass when the window isn't focused) and doesn't need a translucent terminal. A theme picked in cmux's Settings → Themes wins over the soft one; the installer says so when it finds one.
 
 Uninstall: right-click the sidebar button → Workspaces, then stop the background jobs: `launchctl bootout gui/$(id -u)/com.propeller.cmux-last-prompt` and `…/com.propeller.cmux-window-watch`. Your previous settings are in `~/.config/cmux/cmux.json.bak-*` and `~/.claude/settings.json.bak-*`.
 

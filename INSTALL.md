@@ -30,7 +30,7 @@ It writes nothing. Summarise the output for the person in a few lines: which key
 
 Then ask:
 
-1. **Glass terminal?** A translucent terminal with blur (adds `config/ghostty.config` to `~/.config/ghostty/config`, and sets the cmux sidebar material). Default no.
+1. **Glass sidebar?** The desktop shows blurred through the sidebar, while the terminal stays solid, on a soft off-white or dark gray background (sets the cmux sidebar material, adds `config/ghostty.config` to `~/.config/ghostty/config` and copies its two themes to `~/.config/ghostty/themes`). Default no.
 2. Only if the dry run says they have **their own status line** that doesn't save the limits: may you add the two lines it shows to their status line script? The limit card stays empty without them. Show the exact lines and the file before editing; back the file up first.
 
 ## 4. Install
