@@ -72,7 +72,7 @@
   .chip .t { font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chip .ago { font-size: 11px; color: var(--ink2); }
   .chip .paste { font-size: 11px; font-weight: 600; color: var(--blue); }
-  .card { position: absolute; left: 8px; right: 8px; height: 102px; border-radius: 22px; background: #26262ab8; border: 1px solid #7f7f7f26; padding: 14px 16px; }
+  .card { position: absolute; left: 8px; right: 8px; height: 102px; border-radius: 22px; background: #2a2a2e; border: 1px solid #7f7f7f26; padding: 14px 16px; }
   .card .top { display: flex; gap: 10px; align-items: center; height: 58px; }
   .pages { position: relative; flex: 1; height: 58px; }
   .page { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
@@ -86,14 +86,14 @@
   .foot svg { width: 14px; height: 14px; }
 
   /* --- terminal ----------------------------------------------------------------- */
-  .term { position: relative; flex: 1; background: #262628; border-left: 1px solid #00000080; }
+  .term { position: relative; flex: 1; min-width: 0; background: #262628; border-left: 1px solid #00000080; }
   .tabs { height: 34px; display: flex; align-items: flex-end; gap: 2px; padding: 0 10px; border-bottom: 1px solid #ffffff12; background: #1c1c1f; }
   .ttab { height: 28px; padding: 0 14px; display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink2); border-radius: 7px 7px 0 0; max-width: 220px; white-space: nowrap; }
   .ttab.on { background: #262628; color: var(--ink); }
   .ttab .claude { color: #D97757; font-size: 13px; }
-  .tbody { padding: 16px 22px 0 34px; font: 12.5px/1.62 var(--mono); color: #d8d8dc; white-space: pre-wrap; }
-  .tbody .dim { font: inherit; color: #ffffff60; } .tbody .acc { color: #D97757; } .tbody .grn { color: #8bd5a0; } .tbody .usr { color: #fff; font-weight: 600; }
-  .tbody .box { border: 1px solid #F5A52499; border-radius: 6px; padding: 8px 12px; margin: 6px 0; color: #fff; }
+  .tbody { padding: 16px 22px 0 34px; font: 12.5px/1.62 var(--mono); color: #d8d8dc; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .tbody .dim { font: inherit; color: #ffffff60; white-space: inherit; } .tbody .acc { color: #D97757; } .tbody .grn { color: #8bd5a0; } .tbody .usr { color: #fff; font-weight: 600; }
+  .tbody .box { border: 1px solid #F5A52499; border-radius: 6px; padding: 8px 12px; margin: 6px 0; color: #fff; max-width: 100%; }
   .tbody .box .sel { color: var(--orange); }
   .prompt { position: absolute; left: 34px; right: 22px; bottom: 44px; border-top: 1px solid #ffffff1c; border-bottom: 1px solid #ffffff1c; padding: 8px 0; font: 12.5px var(--mono); color: #fff; }
   .status { position: absolute; left: 34px; bottom: 14px; font: 11.5px var(--mono); color: #ffffff70; }
@@ -372,10 +372,13 @@ function sidebar(w, t, height, trans, opts = {}) {
     el.innerHTML = entryHTML(f, trans.from, t);
     list.appendChild(el);
   }
+  // Bottom stack: chip (optional), card, footer. The list scrolls above it, as in the
+  // sidebar, so rows never run under the card.
+  const footH = 30, cardTop = height - footH - H.CARD;
+  list.style.height = cardTop - (w.download ? H.DL : 0) - (w.update ? H.UPD : 0) - 36 + "px";
+  list.style.overflow = "hidden";
   sb.appendChild(list);
 
-  // Bottom stack: chip (optional), card, footer.
-  const footH = 30, cardTop = height - footH - H.CARD;
   const card = document.createElement("div");
   card.className = "card"; card.style.top = cardTop + 6 + "px";
   const pages = cardPages(w);
@@ -426,7 +429,7 @@ function terminal(w, t, scene) {
   el.appendChild(body);
   const typed = w.typed ?? "";
   el.insertAdjacentHTML("beforeend", `<div class="prompt"><span class="dim" style="font:inherit">❯</span> ${typed}<span class="caret" style="opacity:${Math.floor(t * 2) % 2 ? 0 : 1}"></span></div>
-    <div class="status">~/code/${(sel.title).toLowerCase().replace(/[^a-z0-9]+/g, "-")}  <span style="color:#8bd5a0">Opus</span>  ctx:31%  5h:${w.limit.pct}%</div>`);
+    <div class="status">${scene.narrow ? "" : `~/code/${(sel.title).toLowerCase().replace(/[^a-z0-9]+/g, "-")}  `}<span style="color:#8bd5a0">Opus</span>  ctx:31%  5h:${w.limit.pct}%</div>`);
   return el;
 }
 
@@ -550,6 +553,12 @@ function shoot(el, r) {
   el.style.position = "absolute"; el.style.transformOrigin = "0 0";
   el.style.transform = `translate(${(FW - r.w * s) / 2 - r.x * s}px, ${(FH - r.h * s) / 2 - r.y * s}px) scale(${s})`;
   stage.appendChild(el);
+  // Where the frame cuts the panel it fades out; regions put that edge in the gap between rows.
+  const top = r.y > 0 ? r.y : null, bottom = r.y + r.h < el.offsetHeight ? r.y + r.h : null;
+  if (top != null || bottom != null) {
+    const stops = [top != null ? `transparent ${top}px, #000 ${top + 10}px` : "#000 0", bottom != null ? `#000 ${bottom - 10}px, transparent ${bottom}px` : "#000 100%"];
+    el.style.maskImage = `linear-gradient(180deg, ${stops.join(", ")})`;
+  }
 }
 
 function pointer(parent, p, clicks = []) {
@@ -573,27 +582,29 @@ function menu(parent, items, x, y, width, hi) {
 
 // target: selectors of what the note explains; each selector is one highlighted area.
 const NOTES = [];
-const note = (text, a = 1, target = []) => {
+const note = (text, a = 1, target = [], opts = {}) => {
   if (a <= 0) return;
-  if (THEMES[THEME]?.callout) NOTES.push({ text, a, target });
+  if (THEMES[THEME]?.callout) NOTES.push({ text, a, target, ...opts });
   else stage.insertAdjacentHTML("beforeend", `<div class="note" style="opacity:${a}"><span>${text.replace(/<br>/g, " ")}</span></div>`);
 };
 const noteA = (t, a, b) => span(t, a, a + 0.3) * (1 - span(t, b - 0.3, b));
-function bigKeys(keys, t, at) {
+function bigKeys(keys, t, at, pos = "right:22px;top:22px") {
   const a = span(t, at - 0.3, at) * (1 - span(t, at + 0.9, at + 1.2));
   if (a <= 0) return;
   const press = Math.sin(span(t, at, at + 0.25) * Math.PI);
-  stage.insertAdjacentHTML("beforeend", `<div class="bigkeys" style="right:22px;top:22px;opacity:${a};transform:translateY(${press * 3}px)">${keys.map((k) => `<b>${k}</b>`).join("")}</div>`);
+  stage.insertAdjacentHTML("beforeend", `<div class="bigkeys" style="${pos};opacity:${a};transform:translateY(${press * 3}px)">${keys.map((k) => `<b>${k}</b>`).join("")}</div>`);
 }
 
-function featWin(w, t, trans, wd = 620, ht = 420) {
+// A narrow window, 4:3 like the loop, shot whole: WIN_REGION frames all of it.
+function featWin(w, t, trans, wd = 576, ht = 432) {
   const win = document.createElement("div");
   win.className = "win";
   win.style.width = wd + "px"; win.style.height = ht + "px";
   win.appendChild(sidebar(w, t, ht, trans));
-  win.appendChild(terminal(w, t, {}));
+  win.appendChild(terminal(w, t, { narrow: true }));
   return win;
 }
+const WIN_REGION = { x: 0, y: 0, w: 576, h: 432 };
 
 function tabButtons(hover) {
   const ico = [
@@ -643,14 +654,18 @@ es/tag/v0.3.0
 
 const rowY = (w, id) => 36 + layout(w).entries.find((e) => e.key === id).y;
 const cardY = (h) => h - 30 - H.CARD + 6;
-const SB_REGION = (y = 0) => ({ x: -54, y, w: 360, h: 270 });
+// The panel from y0 to y1, 4:3. Both edges sit in a gap between rows in every state of
+// the loop (a header's blank top, or the space between rows), so no text is cut.
+const SB_REGION = (y0, y1) => { const h = y1 - y0, wd = h * 4 / 3; return { x: 126 - wd / 2, y: y0, w: wd, h }; };
+// The bottom of a panel tall enough for its list: from header `key`'s blank top down past the footer.
+const CARD_REGION = (w, h, key) => SB_REGION(rowY(w, key) - 4, h + 8);
 
 const FEATS = {
   sections: { dur: 5.4, draw(t) {
     const w = only(["pay", "copy", "mono", "notes", "dash"]);
     delete w.rows.mono.progress;
     const trans = steps(t, w, [[1.2, (w) => { w.rows.pay.state = "needs"; w.rows.pay.ago = 0; }, 0.7]]);
-    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
+    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION(0, 254));
     note("Asks for permission?<br>It jumps to the top.", noteA(t, 2.0, 5.0), ['[data-key="h:needs"], [data-key="pay"]']);
   } },
 
@@ -662,12 +677,12 @@ const FEATS = {
       if (t < at) w.rows[id].agoText = "22h";
       else w.rows[id].flash = 1 - span(t, at, at + 0.7);
     });
-    shoot(sidebar(w, t, 560, null, { solo: true }), SB_REGION());
-    note("Real times, read from<br>Claude's transcripts.", noteA(t, 2.1, 4.7), [".row .ago"]);
+    shoot(sidebar(w, t, 560, null, { solo: true }), SB_REGION(0, 254));
+    note("Real times, read from<br>Claude's transcripts.", noteA(t, 2.1, 4.7), [{ each: ".row .ago" }]);
   } },
 
   background: { dur: 6.2, draw(t) {
-    const w = only(["pay", "copy", "notes", "dash"]);
+    const w = only(["pay", "copy", "notes"]);
     w.selected = "pay";
     const trans = steps(t, w, [[4.6, (w) => { w.rows.pay.state = "unread"; w.rows.pay.ago = 0; }, 0.7]]);
     let body = `<span class="usr">&gt; run the tests, fix what fails</span>
@@ -686,15 +701,15 @@ const FEATS = {
 <span class="acc">⏺</span> Fixed both. All 216 pass.
 `;
     w.termBody = body;
-    shoot(featWin(w, t, trans), { x: 0, y: 0, w: 560, h: 420 });
-    note("Turn over, tests running:<br>the row stays in Working.", noteA(t, 0.5, 4.3), ['[data-key="h:working"], [data-key="pay"]', ".tbody"]);
+    shoot(featWin(w, t, trans), WIN_REGION);
+    note("Turn over, tests running:<br>the row stays in Working.", noteA(t, 0.5, 4.3), ['[data-key="h:working"], [data-key="pay"]', ".tbody"], { dy: 84 });
   } },
 
   progress: { dur: 5, draw(t) {
     const w = only(["pay", "copy", "mono", "notes"]);
     w.rows.mono.progress = [Math.min(16, 9 + Math.floor(span(t, 0.5, 2.3) * 7.99)), 16];
     const trans = steps(t, w, [[2.8, (w) => { delete w.rows.mono.progress; w.rows.mono.state = "unread"; w.rows.mono.ago = 0; }, 0.7]]);
-    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
+    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION(0, 220));
     note("A segment per background<br>agent, filled when done.", noteA(t, 0.3, 2.8), ['[data-key="mono"]']);
   } },
 
@@ -707,7 +722,7 @@ const FEATS = {
       [1.0, (w) => { w.rows.ios.tabs = clone(tabs); }, 0.6],
       [2.8, (w) => { w.rows.ios.tabs[1].state = "unread"; w.rows.ios.tabs[1].ago = 0; }, 0.3],
     ]);
-    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
+    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION(0, 294));
     note("Each tab keeps its<br>own state.", noteA(t, 1.4, 4.8), ['[data-key="ios"], [data-key^="ios:"]']);
   } },
 
@@ -724,13 +739,13 @@ const FEATS = {
     if (dragging) {
       const ghost = document.createElement("div");
       ghost.className = "entry";
-      ghost.style.cssText = `left:8px;right:8px;top:${p.y - 15}px;z-index:10;opacity:.92;filter:drop-shadow(0 8px 18px #000c)`;
+      ghost.style.cssText = `left:8px;right:8px;top:${p.y - 15}px;z-index:10;filter:drop-shadow(0 8px 18px #000c)`;
       ghost.innerHTML = entryHTML({ kind: "row", key: "docs", id: "docs", row: w.rows.docs }, { ...w, selected: null }, t);
       ghost.firstChild.style.background = "#2c2c31";
       sb.appendChild(ghost);
     }
     pointer(sb, p);
-    shoot(sb, SB_REGION(60));
+    shoot(sb, SB_REGION(30, 300));
     note("Drag a row here to park.<br>It wakes when you write.", noteA(t, 3.1, 5.3), ['[data-key="h:inactive"]']);
   } },
 
@@ -744,7 +759,7 @@ const FEATS = {
     const trans = steps(t, w, [[3.4, (w) => { delete w.rows.triage; w.order = w.order.filter((x) => x !== "triage"); }, 0.45]]);
     const sb = sidebar(w, t, 560, trans, { solo: true });
     pointer(sb, p, [1.55, 3.35]);
-    shoot(sb, SB_REGION(100));
+    shoot(sb, SB_REGION(100, 370));
     note("× asks first.<br>A second click closes.", noteA(t, 1.0, 3.4), ['[data-key="triage"]']);
   } },
 
@@ -752,7 +767,8 @@ const FEATS = {
     const w = only(["pay", "copy", "notes"]);
     const pct = t < 2.6 ? Math.round(42 * easeOut(span(t, 0.3, 1.6))) : 42 + Math.round(34 * easeInOut(span(t, 2.6, 3.8)));
     w.limit = { ...w.limit, pct, left: t < 2.6 ? "2h 14m" : "1h 32m" };
-    shoot(sidebar(w, t, 320, null, { solo: true }), { x: -24, y: 110, w: 300, h: 225 });
+    const h = calmHeight(w);
+    shoot(sidebar(w, t, h, null, { solo: true }), CARD_REGION(w, h, "h:done"));
     note("5-hour and weekly limits.<br>Orange from 70%.", noteA(t, 0.4, 4.7), [".card"]);
   } },
 
@@ -760,12 +776,12 @@ const FEATS = {
     const w = only(["pay", "copy", "notes"]);
     w.page = w.prevPage = 1; w.pageP = 1;
     if (t >= 1.25) w.focusLeft = 1500 - Math.floor((t - 1.25) * 140);
-    const sb = sidebar(w, t, 320, null, { solo: true });
-    const by = cardY(320) + 30;
-    const p = track(t, [[0.1, 150, 330], [1.0, 203, by], [1.6, 203, by], [2.3, 245, 335]]);
+    const h = calmHeight(w), sb = sidebar(w, t, h, null, { solo: true });
+    const by = cardY(h) + 30;
+    const p = track(t, [[0.1, 150, h + 10], [1.0, 203, by], [1.6, 203, by], [2.3, 245, h + 15]]);
     p.t = t;
     pointer(sb, p, [1.2]);
-    shoot(sb, { x: -24, y: 110, w: 300, h: 225 });
+    shoot(sb, CARD_REGION(w, h, "h:done"));
     note("25 minutes of focus,<br>then a notification.", noteA(t, 1.5, 5.2), [".card"]);
   } },
 
@@ -775,12 +791,12 @@ const FEATS = {
     w.page = t >= 0.9 ? 2 : 0; w.prevPage = 0; w.pageP = t >= 0.9 ? easeOut(flip) : 1;
     const k = easeOut(span(t, 1.1, 2.6));
     w.today = { prompts: Math.round(47 * k), hours: (5.3 * k).toFixed(1), agents: Math.round(12 * k), streak: 6 };
-    const sb = sidebar(w, t, 320, null, { solo: true });
-    const dy = cardY(320) + 82;
-    const p = track(t, [[0.1, 200, 330], [0.75, 131, dy], [1.1, 131, dy], [1.8, 250, 335]]);
+    const h = calmHeight(w), sb = sidebar(w, t, h, null, { solo: true });
+    const dy = cardY(h) + 82;
+    const p = track(t, [[0.1, 200, h + 10], [0.75, 131, dy], [1.1, 131, dy], [1.8, 250, h + 15]]);
     p.t = t;
     pointer(sb, p, [0.85]);
-    shoot(sb, { x: -24, y: 110, w: 300, h: 225 });
+    shoot(sb, CARD_REGION(w, h, "h:done"));
     note("Today: prompts, hours,<br>agents and your streak.", noteA(t, 1.3, 4.3), [".card"]);
   } },
 
@@ -790,32 +806,32 @@ const FEATS = {
     w.rows.mono.proj = ["2.1", 18]; w.rows.notes.proj = ["0.6", 7];
     w.selected = t >= 1.7 ? "notes" : "mono";
     w.page = w.prevPage = 3; w.pageP = 1;
-    const sb = sidebar(w, t, 420, null, { solo: true });
+    const h = calmHeight(w), sb = sidebar(w, t, h, null, { solo: true });
     const ny = rowY(w, "notes") + 15;
-    const p = track(t, [[0.2, 210, 400], [1.3, 120, ny], [1.8, 120, ny], [2.6, 236, 330]]);
+    const p = track(t, [[0.2, 210, h - 20], [1.3, 120, ny], [1.8, 120, ny], [2.6, 236, h - 90]]);
     p.t = t;
     pointer(sb, p, [1.65]);
-    shoot(sb, SB_REGION(125));
+    shoot(sb, CARD_REGION(w, h, "h:done"));
     note("Select a row to see<br>its hours and prompts.", noteA(t, 2.0, 4.9), [".card", '[data-key="notes"]']);
   } },
 
   download: { dur: 5.6, draw(t) {
-    const w = only(["copy", "pay", "notes"]);
+    const w = only(["copy", "pay"]);
     w.selected = "copy";
     w.termBody = SHORT.dl;
     if (t >= 0.5 && t < 3.4) w.download = { name: "IMG_2041.png", ago: "now", in: easeOut(span(t, 0.5, 1.0)), press: t > 2.6 ? Math.sin(span(t, 2.6, 3.0) * Math.PI) : 0, out: t > 3.0 ? span(t, 3.0, 3.4) : null };
     if (t >= 3.0) w.typed = "~/Downloads/IMG_2041.png ";
-    const win = featWin(w, t, null, 620, 480);
-    const cy = cardY(480) - H.DL + 17;
-    const p = track(t, [[0.2, 360, 260], [2.2, 216, cy], [2.8, 216, cy], [3.6, 330, 290]]);
+    const win = featWin(w, t, null);
+    const cy = cardY(432) - H.DL + 17;
+    const p = track(t, [[0.2, 400, 330], [2.2, 216, cy], [2.8, 216, cy], [3.6, 400, 300]]);
     p.t = t;
     pointer(win, p, [2.65]);
-    shoot(win, { x: 0, y: 120, w: 480, h: 360 });
+    shoot(win, WIN_REGION);
     note("AirDrop a screenshot,<br>paste it into Claude.", noteA(t, 0.8, 3.1), [".chip", ".prompt"]);
   } },
 
   cmdn: { dur: 5, draw(t) {
-    const w = only(["copy", "pay", "notes"]);
+    const w = only(["copy", "pay"]);
     w.selected = "copy";
     w.termBody = SHORT.dl;
     const trans = steps(t, w, [[1.4, (w) => {
@@ -823,8 +839,8 @@ const FEATS = {
       w.order.push("fresh"); w.selected = "fresh";
       w.termBody = WELCOME("~/code/side-project");
     }, 0.6]]);
-    shoot(featWin(w, t, trans, 620, 540), { x: 0, y: 0, w: 560, h: 420 });
-    bigKeys(["⌘", "N"], t, 1.2);
+    shoot(featWin(w, t, trans), WIN_REGION);
+    bigKeys(["⌘", "N"], t, 1.2, "right:60px;top:170px");
     note("⌘N opens a workspace<br>with Claude running.", noteA(t, 1.9, 4.8), ['[data-key="h:fresh"], [data-key="fresh"]', ".tbody"]);
   } },
 
@@ -849,7 +865,7 @@ const FEATS = {
         278, ry - 3, 250, t >= 1.9 ? 0 : -1);
     }
     pointer(win, p, [0.95, 3.6]);
-    shoot(win, { x: 0, y: 0, w: 560, h: 420 });
+    shoot(win, WIN_REGION);
     note("Worktree, second Claude,<br>preview or simulator.", noteA(t, 1.6, 3.5), [".menu"]);
   } },
 
@@ -868,28 +884,28 @@ const FEATS = {
       w.termTabs.push({ title: "Claude", on: true, in: easeOut(span(t, 3.6, 3.9)), icon: `<span class="claude" style="width:13px;height:13px;display:inline-block">${tabButtons().match(/<svg.*?<\/svg>/g)[0]}</span>` });
       w.termBody = WELCOME("~/code/shop/.claude/worktrees/bright-fox", `<span class="dim">Created worktree on branch</span> worktree-bright-fox\n\n`);
     }
-    const bx = (i) => 252 + 368 - 10 - 110 + 13 + i * 28;
+    const bx = (i) => 700 - 10 - 110 + 13 + i * 28;
     const p = track(t, [[0.1, 470, 230], [0.9, bx(0), 17], [1.7, bx(0), 17], [2.6, bx(1), 17], [3.7, bx(1), 17], [4.4, 520, 200]]);
     p.t = t;
     w.btnHover = t >= 0.9 && t < 1.7 ? 0 : t >= 2.6 && t < 3.7 ? 1 : -1;
-    const win = featWin(w, t, null);
+    const win = featWin(w, t, null, 700, 336);
     if (t >= 1.0 && t < 1.55) win.insertAdjacentHTML("beforeend", `<div class="tip" style="left:${bx(0) - 30}px;top:38px">Claude</div>`);
     if (t >= 2.7 && t < 3.55) win.insertAdjacentHTML("beforeend", `<div class="tip" style="left:${bx(1) - 150}px;top:38px">Claude on a new branch</div>`);
     pointer(win, p, [1.55, 3.55]);
-    shoot(win, { x: 252, y: 0, w: 368, h: 276 });
+    shoot(win, { x: 252, y: 0, w: 448, h: 336 });
     note("A Claude tab, or Claude<br>on a branch of its own.", noteA(t, 4.1, 6.1), [".tbtns"]);
   } },
 
-  keys: { dur: 5.6, draw(t) {
+  keys: { dur: 6.4, draw(t) {
     const w = only(["pay", "copy", "mono", "ios", "notes", "dash"]);
     delete w.rows.mono.progress; delete w.rows.ios.tabs;
     w.keys = Math.floor(span(t, 0.3, 1.2) * 9.99);
     w.selected = t >= 1.9 ? "pay" : "copy";
     const trans = steps(t, w, [[3.3, (w) => { w.rows.pay.state = "needs"; w.rows.pay.ago = 0; }, 0.7]]);
     if (t >= 1.9) w.selected = "pay";
-    shoot(sidebar(w, t, 560, trans, { solo: true }), SB_REGION());
+    shoot(sidebar(w, t, 560, trans, { solo: true }), { ...SB_REGION(0, 286), x: -12 });
     bigKeys(["⌘", "3"], t, 1.9);
-    note("⌘1…9 follow the rows,<br>even when they move.", noteA(t, 3.3, 5.3), [".key"]);
+    note("⌘1…9 follow the rows,<br>even when they move.", noteA(t, 4.1, 6.1), [{ each: ".key" }], { above: true });
   } },
 
   update: { dur: 6.4, draw(t) {
@@ -901,12 +917,12 @@ const FEATS = {
       w.termTabs = [{ title: "Landing page copy", on: false }, { title: "update.sh", on: true, in: easeOut(span(t, 2.6, 2.9)), icon: '<span class="dim">$</span>' }];
       w.termBody = UPDATE + (t >= 3.4 ? UPDATED : "");
     }
-    const win = featWin(w, t, null, 620, 420);
-    const cy = cardY(420) - H.UPD + 17;
+    const win = featWin(w, t, null);
+    const cy = cardY(432) - H.UPD + 17;
     const p = track(t, [[0.2, 400, 330], [1.9, 216, cy], [2.5, 216, cy], [3.3, 420, 360]]);
     p.t = t;
     pointer(win, p, [2.35]);
-    shoot(win, { x: 0, y: 0, w: 560, h: 420 });
+    shoot(win, WIN_REGION);
     note("A new release is out?<br>One click updates.", noteA(t, 0.8, 2.6), ['[data-chip="upd"]']);
     note("update.sh runs in a tab,<br>so you see what it does.", noteA(t, 3.0, 6.0), [".tbody"]);
   } },
@@ -917,7 +933,7 @@ const FEATS = {
     w.spin = t >= 5.15 ? "braille" : t >= 2.15 ? "pulse" : "dots";
     // The submenu reaches past the panel's edge, so the menus sit on a box around it.
     const box = document.createElement("div");
-    box.style.cssText = "position:relative;width:252px;height:560px";
+    box.style.cssText = "position:relative;width:330px;height:560px";
     box.appendChild(sidebar(w, t, 560, null, { solo: true }));
     // Right-click the Working header, then Working indicator > Pulse; again for Braille.
     // Menu rows are 22 px under 5 px of padding, the divider 11 px: the indicator row's
@@ -932,7 +948,7 @@ const FEATS = {
       if (t >= at - 0.8) menu(box, spinMenu(at < 3 ? "dots" : "pulse"), hx + 148, iy - 16, 118, t >= at - 0.4 ? item : -1);
     }
     pointer(box, p, [0.65, 2.05, 3.65, 5.05]);
-    shoot(box, SB_REGION());
+    shoot(box, SB_REGION(0, 282));
     const rows = ['[data-key="h:working"], [data-key="pay"], [data-key="docs"], [data-key="notes"]'];
     note("Three dots, or a colour,<br>a pulse or braille.", Math.max(noteA(t, 2.3, 3.5), noteA(t, 5.3, 7.1)), rows);
   } },
@@ -946,8 +962,8 @@ const FEATS = {
     p.t = t;
     if (t >= 0.9 && t < 1.9) menu(sb, PANEL_MENU, 62, 54, 160, t >= 1.45 ? 0 : -1);
     pointer(sb, p, [0.95, 1.85]);
-    shoot(sb, SB_REGION());
-    note("Right-click a header:<br>English or Українська.", noteA(t, 2.1, 4.7), [".pill"]);
+    shoot(sb, SB_REGION(0, 254));
+    note("Right-click a header:<br>English or Українська.", noteA(t, 2.1, 4.7), [{ each: ".pill" }]);
   } },
 };
 
@@ -1374,9 +1390,11 @@ const THEMES = {
     frame(el, r) { el.classList.add("shot"); return { el, r }; },
     // A note becomes one numbered tag: its areas stay as they are, the rest of the window
     // goes flat grey, and a leader runs from an orange dot on the first area to the tag.
-    callout({ text, a, target }) {
+    callout({ text, a, target, dy = 24, above = false }) {
       const shot = stage.querySelector(".shot");
-      const holes = target.map((sel) => stageBox([...shot.querySelectorAll(sel)], 3)).filter(Boolean);
+      // A selector string is one area around all it matches; { each } is an area per element.
+      const holes = target.flatMap((sel) => sel.each ? [...shot.querySelectorAll(sel.each)].map((e) => stageBox([e], 3)) : [stageBox([...shot.querySelectorAll(sel)], 3)])
+        .filter((b) => b && b.y < FH && b.y + b.h > 0);
       if (!holes.length) return;
       const f = stageBox([shot]), x0 = Math.max(0, f.x), y0 = Math.max(0, f.y);
       greyOut({ x: x0, y: y0, w: Math.min(FW, f.x + f.w) - x0, h: Math.min(FH, f.y + f.h) - y0 }, holes, a);
@@ -1385,10 +1403,10 @@ const THEMES = {
       const at = { x: right ? R.x + R.w : left ? R.x : R.x + R.w - 16, y: right || left ? R.y + Math.min(R.h, 60) / 2 : R.y };
       const ex = right ? Math.min(FW - 10, at.x + 14) : left ? Math.max(10, at.x - 14) : at.x;
       const x = Math.max(8, Math.min(FW - wd - 8, ex - wd + 30));
-      const tag = html(`<span class="num">1</span><div>${text}</div>`, `left:${x}px;top:0;width:${wd}px;opacity:${a}`);
+      const tag = html(`<span class="num">1</span><div>${text}</div>`, `left:${x}px;top:0;width:${wd}px;clip-path:inset(0 ${(1 - easeOut(Math.min(1, 2 * a))) * 100}% 0 0)`);
       tag.className = "dtag";
-      const th = tag.offsetHeight, below = FH - (R.y + R.h) >= R.y;
-      const y = below ? R.y + R.h + 24 : R.y - 24 - th;
+      const th = tag.offsetHeight, below = !above && FH - (R.y + R.h) >= R.y;
+      const y = below ? R.y + R.h + dy : Math.max(8, R.y - dy - th);
       tag.style.top = y + "px";
       wires([[at, { x: ex, y: at.y }, { x: ex, y: below ? y : y + th }]], a);
       stage.appendChild(tag);
