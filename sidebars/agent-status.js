@@ -90,7 +90,7 @@ function systemLang() {
 }
 
 const [langOverride, setLangOverride] = signal(null);
-const lang = () => langOverride() ?? globalToken("lang:")?.v ?? systemLang();
+const lang = computed(() => langOverride() ?? globalToken("lang:")?.v ?? systemLang());
 const t = (key) => STRINGS[lang()]?.[key] ?? STRINGS.en[key];
 
 // Writes (or with value null, removes) an account-wide token on the workspace that
@@ -120,7 +120,11 @@ const languageMenu = () => [
 // "skin:" token changes; scripts/skin.sh does both at once. Light only: System 1 is
 // black ink on white paper whatever the macOS appearance.
 const [skinOverride, setSkinOverride] = signal(null);
-const skin = () => skinOverride() ?? globalToken("skin:")?.v ?? "normal";
+// Computed once per data update: S1() sits in hundreds of bindings, and without a
+// "skin:" token each call scanned every workspace with a fresh RegExp (33k a second
+// with 35 workspaces), enough for cmux to stop the sidebar ("JavaScript execution
+// terminated", 20.10.2026).
+const skin = computed(() => skinOverride() ?? globalToken("skin:")?.v ?? "normal");
 const S1 = () => skin() !== "normal";
 const s1 = (normal, system1) => () => (S1() ? system1 : normal);
 const INK = "#000000";
@@ -966,11 +970,13 @@ function activityCardBody() {
 // grey icons in ink, white on its black selection bar.
 function stateIcon(st, sel = () => false) {
   const tint = (color) => () => (S1() ? ink(sel()) : color);
+  // The spinner changes colour and doesn't turn: cmux animates a rotation, and every
+  // frame of it laid out the whole window again, a full core of cmux for as long as
+  // one agent worked (20.10.2026).
   return ZStack({}, [
     Image("progress.indicator")
       .font(12).weight("bold")
       .color(() => SPINNER_COLORS[(data.clock()?.epoch ?? 0) % SPINNER_COLORS.length])
-      .rotation(() => (st().kind === "working" ? (data.clock()?.epoch ?? 0) * 360 : 0))
       .opacity(() => (st().kind === "working" ? 1 : 0)),
     Image("record.circle")
       .font(13).color(ORANGE)
