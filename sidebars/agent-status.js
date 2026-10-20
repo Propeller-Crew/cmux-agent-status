@@ -290,7 +290,11 @@ function agentState(w) {
 function computeAgentState(w) {
   const agents = w.agents ?? [];
   const needs = agents.find((a) => a.status === "needs_input");
-  if (needs || w.status === "needs-attention") {
+  // cmux's own workspace status can stay "needs-attention" after a question is answered
+  // (seen 20.10.2026: every tab working, the workspace still under Needs you). Trust it
+  // only when no agent there says it's working; an agent that does wait shows needs_input.
+  const stale = w.status === "needs-attention" && agents.some((a) => a.status === "working");
+  if (needs || (w.status === "needs-attention" && !stale)) {
     return { kind: "needs", since: secs(needs?.sinceEpoch ?? needs?.lastActivityAt) ?? lastPromptAt(w) };
   }
   const working = agents.find((a) => a.status === "working");
