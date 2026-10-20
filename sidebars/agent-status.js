@@ -68,18 +68,51 @@ const STRINGS = {
 };
 const DURATION = { en: ["h", "m"], uk: [" год", " хв"] };
 
+// --- keeping the bindings cheap ----------------------------------------------------
+// cmux gives each call into the sidebar 0.25 s and then stops it for good ("JavaScript
+// execution terminated", 20.10.2026), and every binding that re-runs sends cmux an op,
+// changed or not. A data update hands over a new object for every workspace, so a
+// binding that reads data.workspaces() re-runs on each one: about 900 per update and
+// 360 per clock tick with 35 workspaces. So bindings read memos instead: computed()
+// wakes its readers only when the value differs (Object.is), and stable() keeps the
+// previous object while the new one has the same JSON.
+function stable(fn) {
+  let last, lastJson;
+  return computed(() => {
+    const v = fn();
+    const json = JSON.stringify(v);
+    if (json !== lastJson) {
+      lastJson = json;
+      last = v;
+    }
+    return last;
+  });
+}
+
+// Workspaces by id: one Map per data update instead of a find() in every binding.
+const wsById = computed(() => new Map((data.workspaces() ?? []).map((w) => [w.id, w])));
+
+const TOKEN_RE = new Map();
 const token = (w, name) => {
-  const m = new RegExp("(?:^| · )" + name + "([^ ]+)").exec(w?.description ?? "");
+  let re = TOKEN_RE.get(name);
+  if (!re) TOKEN_RE.set(name, (re = new RegExp("(?:^| · )" + name + "([^ ]+)")));
+  const m = re.exec(w?.description ?? "");
   return m ? m[1] : null;
 };
-// Account-wide tokens live on one workspace (the sync job picks it).
-const globalToken = (name) => {
+// Account-wide tokens live on one workspace (the sync job picks it); read once per
+// data update. { id, v }: the owner's id and the value.
+const GLOBAL_TOKENS = ["lim:", "day:", "win:", "focus:", "dl:", "dlseen:", "lang:", "skin:"];
+const globalTokens = stable(() => {
+  const out = {};
   for (const w of data.workspaces() ?? []) {
-    const v = token(w, name);
-    if (v) return { w, v };
+    for (const name of GLOBAL_TOKENS) {
+      const v = out[name] ? null : token(w, name);
+      if (v) out[name] = { id: w.id, v };
+    }
   }
-  return null;
-};
+  return out;
+});
+const globalToken = (name) => globalTokens()[name] ?? null;
 
 function systemLang() {
   try {
@@ -96,7 +129,9 @@ const t = (key) => STRINGS[lang()]?.[key] ?? STRINGS.en[key];
 // Writes (or with value null, removes) an account-wide token on the workspace that
 // carries them; the sync job keeps it there.
 function setGlobalToken(prefix, value) {
-  const owner = globalToken("lim:")?.w ?? globalToken(prefix)?.w ?? (data.workspaces() ?? [])[0];
+  const ws = data.workspaces() ?? [];
+  const ownerId = globalToken("lim:")?.id ?? globalToken(prefix)?.id;
+  const owner = ws.find((w) => w.id === ownerId) ?? ws[0];
   if (!owner) return;
   const parts = (owner.description ?? "").split(" · ").filter((p) => p && !p.startsWith(prefix));
   if (value != null) parts.push(prefix + value);
@@ -486,8 +521,22 @@ function setAsleep(w, on) {
 // needs you (permission prompt or question) > working (incl. background work) >
 // sleeping (parked by hand) > new (finished while you were elsewhere) > no task yet
 // (a live Claude without a prompt) > done > sleeping (no prompt for a day).
+// Asked by every row, the section sort, the counts and the octopus, so it's worked out
+// once per workspace object and second. A hit reads the clock and sleepTick like a
+// miss does, so its readers still wake when either moves.
+const stateCache = new WeakMap();
 function agentState(w) {
   if (!w) return { kind: "inactive", since: null };
+  const now = nowSecs();
+  const tick = sleepTick();
+  const hit = stateCache.get(w);
+  if (hit && hit.now === now && hit.tick === tick) return hit.st;
+  const st = computeAgentState(w);
+  stateCache.set(w, { now, tick, st });
+  return st;
+}
+
+function computeAgentState(w) {
   const agents = w.agents ?? [];
   const needs = agents.find((a) => a.status === "needs_input");
   if (needs || w.status === "needs-attention") {
@@ -604,22 +653,25 @@ const [showAllSleeping, setShowAllSleeping] = signal(false);
 // --- sections ----------------------------------------------------------------------
 const sectionOf = (w) => (w.pinned ? "pinned" : agentState(w).kind);
 
-// Every workspace by section, in the order the sidebar shows them.
-const sectionRows = computed(() => {
+// Every workspace id by section, in the order the sidebar shows them.
+const sectionIds = stable(() => {
   const buckets = Object.fromEntries(SECTIONS.map((s) => [s.id, []]));
   for (const w of visibleWorkspaces()) buckets[sectionOf(w)].push(w);
-  for (const rows of Object.values(buckets)) {
+  const out = {};
+  for (const [id, rows] of Object.entries(buckets)) {
     rows.sort((a, b) => (agentState(b).since ?? 0) - (agentState(a).since ?? 0));
+    out[id] = rows.map((w) => w.id);
   }
-  return buckets;
+  return out;
 });
 
-const flatEntries = computed(() => {
-  const buckets = sectionRows();
+const flatEntries = stable(() => {
+  const ids = sectionIds();
+  const byId = wsById();
   const editing = editingId();
   const out = [];
   for (const s of SECTIONS) {
-    const rows = buckets[s.id];
+    const rows = ids[s.id].map((id) => byId.get(id)).filter(Boolean);
     if (rows.length === 0) continue;
     out.push({ kind: "header", id: "h:" + s.id, section: s.id });
     if (collapsed()[s.id]) continue;
@@ -638,7 +690,7 @@ const flatEntries = computed(() => {
   return out;
 });
 
-const sectionCount = (id) => visibleWorkspaces().filter((w) => sectionOf(w) === id).length;
+const sectionCount = (id) => sectionIds()[id].length;
 
 // Cmd+1…9 pick workspaces by cmux's own order, so that order follows the sidebar:
 // Cmd+1 is always the top row. Pushed at most every 2 s, and only when it differs.
@@ -646,13 +698,15 @@ const ORDER_EVERY = 2;
 let orderPushedAt = 0;
 
 function syncOrder() {
-  const wanted = SECTIONS.flatMap((s) => sectionRows()[s.id].map((w) => w.id));
+  const wanted = SECTIONS.flatMap((s) => sectionIds()[s.id]);
   const actual = visibleWorkspaces().map((w) => w.id);
-  if (wanted.join() === actual.join() || nowSecs() - orderPushedAt < ORDER_EVERY) return 0;
+  if (wanted.join() === actual.join() || nowSecs() - orderPushedAt < ORDER_EVERY) return;
   orderPushedAt = nowSecs();
   cmux("workspace.reorder_many", { workspace_ids: JSON.stringify(wanted) });
-  return 0;
 }
+// Its own effect: it reads the clock to retry after ORDER_EVERY, and nothing on screen
+// has to re-run with it.
+computed(syncOrder);
 
 // --- activity card ---------------------------------------------------------------
 // Bottom-left, styled like an iPhone Live Activity: the Router octopus on the left
@@ -678,28 +732,28 @@ const CARD_ORANGE = "#C26A00";
 const CARD_RED = "#E0453B";
 const CARD_VIOLET = "#8466EC";
 
-function limits() {
+const limits = stable(() => {
   const v = globalToken("lim:")?.v;
   if (!v) return null;
   const [pct, reset, weekPct, weekReset] = v.split("/").map(Number);
   const now = nowSecs();
   return { pct: reset > now ? pct : 0, reset, fresh: !(reset > now), weekPct: weekReset > now ? weekPct : 0 };
-}
+});
 
-function today() {
+const today = stable(() => {
   const v = globalToken("day:")?.v;
   if (!v) return null;
   const [prompts, minutes, agents, streak] = v.split("/").map(Number);
   return { prompts, minutes, agents, streak };
-}
+});
 
-function sessionStats() {
+const sessionStats = stable(() => {
   const w = (data.workspaces() ?? []).find((x) => isSelected(x));
   const v = token(w, "st:");
   if (!w || !v) return null;
   const [prompts, minutes] = v.split("/").map(Number);
   return { title: cleanTitle(workspaceTitle(w)), prompts, minutes };
-}
+});
 
 const limitColor = (pct) => (pct >= 90 ? CARD_RED : pct >= 70 ? CARD_ORANGE : CARD_GREEN);
 // Time as a bare number plus its unit, so the unit can sit in the small label and
@@ -758,17 +812,21 @@ const octo1Bit = (c, y) => (c === "." ? CLEAR : OCTO_INK.has(c) || (y >= 13 && c
 // differently from frame to frame and made the card, and the sidebar, jitter.
 const PIXEL = 2.5;
 function octopus() {
-  const pixel = () => {
-    const frames = OCTO_FRAMES[octoMood()];
+  // The mood once per update, and a computed per row of the frame: a cell redraws only
+  // when its row changes (a blink is one row), not 256 cells every second.
+  const mood = computed(octoMood);
+  const frame = computed(() => {
+    const frames = OCTO_FRAMES[mood()];
     return frames[(data.clock()?.epoch ?? 0) % frames.length];
-  };
+  });
   const rows = [];
   for (let y = 0; y < 16; y += 1) {
+    const line = computed(() => frame()[y]);
     const cells = [];
     for (let x = 0; x < 16; x += 1) {
       cells.push(
         Rectangle()
-          .fill(() => (S1() ? octo1Bit(pixel()[y][x], y) : OCTO_PALETTE[pixel()[y][x]] ?? "#00000000"))
+          .fill(() => (S1() ? octo1Bit(line()[x], y) : OCTO_PALETTE[line()[x]] ?? "#00000000"))
           .frame({ width: PIXEL, height: PIXEL })
       );
     }
@@ -783,11 +841,17 @@ const pageSlot = (name, view) =>
   view.opacity(() => (shown(name)() ? 1 : 0)).frame(() => ({ maxWidth: "infinity", height: shown(name)() ? 58 : 0 }));
 
 function segmentBar(fraction, color, count) {
+  // How many are lit, so a segment redraws when it flips, not with every fraction.
+  const lit = computed(() => {
+    let n = 0;
+    while (n < count && (n + 0.5) / count <= fraction()) n += 1;
+    return n;
+  });
   const segs = [];
   for (let i = 0; i < count; i += 1) {
     segs.push(
       Capsule()
-        .fill(() => ((i + 0.5) / count <= fraction() ? color() : CARD_TRACK()))
+        .fill(() => (i < lit() ? color() : CARD_TRACK()))
         .frame({ maxWidth: "infinity", height: 4 })
     );
   }
@@ -857,7 +921,7 @@ function focusLeft() {
 const mmss = (s) => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(Math.floor(s % 60)).padStart(2, "0");
 
 function focusPage() {
-  const left = () => focusLeft();
+  const left = computed(focusLeft);
   return VStack({ spacing: 5 }, [
     HStack({ spacing: 6 }, [
       when(() => !S1(), () => Text(() => (left() == null ? mmss(FOCUS_SECONDS) : mmss(left()))).font(22).weight("bold")
@@ -966,33 +1030,33 @@ function activityCardBody() {
 }
 
 // --- views -------------------------------------------------------------------------
-// sel: whether the row is the selected one. System 1 keeps the colours and draws the
-// grey icons in ink, white on its black selection bar.
-function stateIcon(st, sel = () => false) {
+// kind: the row's state kind (a memo); sel: whether the row is the selected one. System 1
+// keeps the colours and draws the grey icons in ink, white on its black selection bar.
+function stateIcon(kind, sel = () => false) {
   const tint = (color) => () => (S1() ? ink(sel()) : color);
   // The spinner changes colour and doesn't turn: cmux animates a rotation, and every
   // frame of it laid out the whole window again, a full core of cmux for as long as
-  // one agent worked (20.10.2026).
+  // one agent worked (20.10.2026). Only a working row's spinner follows the clock.
   return ZStack({}, [
     Image("progress.indicator")
       .font(12).weight("bold")
-      .color(() => SPINNER_COLORS[(data.clock()?.epoch ?? 0) % SPINNER_COLORS.length])
-      .opacity(() => (st().kind === "working" ? 1 : 0)),
+      .color(() => SPINNER_COLORS[kind() === "working" ? (data.clock()?.epoch ?? 0) % SPINNER_COLORS.length : 0])
+      .opacity(() => (kind() === "working" ? 1 : 0)),
     Image("record.circle")
       .font(13).color(ORANGE)
-      .opacity(() => (st().kind === "needs" ? 1 : 0)),
+      .opacity(() => (kind() === "needs" ? 1 : 0)),
     Image("checkmark.circle.fill")
       .font(13).color(BLUE)
-      .opacity(() => (st().kind === "unread" ? 1 : 0)),
+      .opacity(() => (kind() === "unread" ? 1 : 0)),
     Image("checkmark")
       .font(10).weight("semibold").color(tint("tertiary"))
-      .opacity(() => (st().kind === "done" ? 1 : 0)),
+      .opacity(() => (kind() === "done" ? 1 : 0)),
     Image("moon.fill")
       .font(10).color(tint("tertiary"))
-      .opacity(() => (st().kind === "inactive" ? 1 : 0)),
+      .opacity(() => (kind() === "inactive" ? 1 : 0)),
     Image("square.and.pencil")
       .font(10).color(TEAL)
-      .opacity(() => (st().kind === "fresh" ? 1 : 0)),
+      .opacity(() => (kind() === "fresh" ? 1 : 0)),
   ]).frame({ width: 16, height: 16 });
 }
 
@@ -1005,23 +1069,39 @@ function progressCounts(w) {
   return m ? { done: Number(m[1]), total: Math.min(Number(m[2]), MAX_SEGMENTS) } : null;
 }
 
-function progressSegments(w, sel = () => false) {
-  const segs = [];
-  for (let i = 0; i < MAX_SEGMENTS; i += 1) {
-    segs.push(
-      Capsule()
-        .fill(() => {
-          const p = progressCounts(w());
-          if (S1() && !(p && i < p.done)) return sel() ? "#FFFFFF59" : "#00000033";
-          return p && i < p.done ? SPINNER_COLORS[i % SPINNER_COLORS.length] : "#7f7f7f40";
-        })
-        .frame(() => ({ width: (progressCounts(w())?.total ?? 0) > i ? 7 : 0, height: 3 }))
-    );
-  }
-  return HStack({ spacing: 2 }, [...segs, Spacer({ minLength: 0 })])
-    .frame(() => ({ maxWidth: "infinity", height: progressCounts(w()) ? 3 : 0 }))
-    .opacity(() => (progressCounts(w()) ? 1 : 0));
+// progress: the row's "done/total" memo, "" without a batch running. The segments are
+// mounted only while there is one (24 hidden ones in every row sent hundreds of ops on
+// each data update); the empty strip stays, so the row keeps its spacing.
+function progressSegments(progress, sel = () => false) {
+  const counts = () => {
+    const [done, total] = progress().split("/").map(Number);
+    return progress() ? { done, total } : null;
+  };
+  const segments = () => {
+    const segs = [];
+    for (let i = 0; i < MAX_SEGMENTS; i += 1) {
+      segs.push(
+        Capsule()
+          .fill(() => {
+            const p = counts();
+            if (S1() && !(p && i < p.done)) return sel() ? "#FFFFFF59" : "#00000033";
+            return p && i < p.done ? SPINNER_COLORS[i % SPINNER_COLORS.length] : "#7f7f7f40";
+          })
+          .frame(() => ({ width: (counts()?.total ?? 0) > i ? 7 : 0, height: 3 }))
+      );
+    }
+    return HStack({ spacing: 2 }, [...segs, Spacer({ minLength: 0 })]);
+  };
+  return HStack({ spacing: 0 }, [when(() => progress() !== "", segments)])
+    .frame(() => ({ maxWidth: "infinity", height: progress() ? 3 : 0 }))
+    .opacity(() => (progress() ? 1 : 0));
 }
+
+// The "done/total" a row's segments draw, or "".
+const progressKey = (w) => {
+  const p = progressCounts(w);
+  return p ? p.done + "/" + p.total : "";
+};
 
 // One tab under its workspace: indented, smaller, with that tab's own agent state.
 function tabState(w, tab) {
@@ -1033,22 +1113,26 @@ function tabState(w, tab) {
 }
 
 function tabRow(entry) {
-  const w = () => (data.workspaces() ?? []).find((x) => x.id === entry.wsId);
+  const w = () => wsById().get(entry.wsId);
   const tab = () => (w()?.tabs ?? []).find((x) => x.id === entry.tabId);
-  const st = () => tabState(w(), tab());
-  const isCurrent = () => isSelected(w()) && !!tab()?.focused;
+  // Memos: the bindings below wake only when one of these changes (see stable()).
+  const kind = computed(() => tabState(w(), tab()).kind);
+  const since = computed(() => tabState(w(), tab()).since);
+  const isCurrent = computed(() => isSelected(w()) && !!tab()?.focused);
+  const title = computed(() => cleanTitle(tab()?.title));
+  const agoText = computed(() => (kind() === "none" ? "" : ago(since())));
   return HStack({ spacing: 8 }, [
     Rectangle().fill("#7f7f7f40").frame({ width: 1, height: 14 }),
-    Text(() => cleanTitle(tab()?.title))
+    Text(title)
       .font(12)
-      .weight(() => (st().kind === "unread" ? "semibold" : "regular"))
+      .weight(() => (kind() === "unread" ? "semibold" : "regular"))
       .lineLimit(1)
       .truncation("tail")
       .color(() => (S1() ? ink(isCurrent()) : (isCurrent() ? "primary" : "secondary"))),
     Spacer({ minLength: 0 }),
     HStack({ spacing: 8 }, [
-      Text(() => (st().kind === "none" ? "" : ago(st().since))).font(11).color(() => (S1() ? ink(isCurrent()) : "tertiary")),
-      stateIcon(st, isCurrent).opacity(() => (st().kind === "none" ? 0 : 1)),
+      Text(agoText).font(11).color(() => (S1() ? ink(isCurrent()) : "tertiary")),
+      stateIcon(kind, isCurrent).opacity(() => (kind() === "none" ? 0 : 1)),
     ])
       .fixedSize()
       .layoutPriority(2),
@@ -1057,7 +1141,7 @@ function tabRow(entry) {
     .paddingTrailing(10)
     .paddingVertical(3)
     .cornerRadius(s1(6, 0))
-    .background(() => (S1() ? (isCurrent() ? INK : null) : isCurrent() ? "#7f7f7f24" : (st().kind === "unread" ? "#4C9EEB1c" : null)))
+    .background(() => (S1() ? (isCurrent() ? INK : null) : isCurrent() ? "#7f7f7f24" : (kind() === "unread" ? "#4C9EEB1c" : null)))
     .hoverBackground(s1("#7f7f7f1c", "#0000001A"))
     .frame({ maxWidth: "infinity", height: TAB_H })
     .fixed()
@@ -1080,7 +1164,7 @@ function openHereMenu(w) {
     });
   // Menu items can't be hidden (no conditional views), so the preview item
   // is always there and says when there is no server to preview.
-  const port = () => (w()?.ports ?? [])[0];
+  const port = computed(() => (w()?.ports ?? [])[0]);
   return Menu(() => t("openHere"), [
     Button(() => t("worktree"), newTerminal("claude -w")),
     Button(() => t("anotherClaude"), newTerminal("claude")),
@@ -1092,11 +1176,11 @@ function openHereMenu(w) {
   ]);
 }
 
-function rowBackground(w, st, hover) {
+function rowBackground(sel, kind, hover) {
   // System 1: the selection is a black bar; new results show by their bold title.
-  if (S1()) return isSelected(w) ? INK : hover ? "#0000001A" : null;
-  if (isSelected(w)) return "#7f7f7f3d";
-  if (st.kind === "unread") return hover ? "#4C9EEB38" : "#4C9EEB24";
+  if (S1()) return sel ? INK : hover ? "#0000001A" : null;
+  if (sel) return "#7f7f7f3d";
+  if (kind === "unread") return hover ? "#4C9EEB38" : "#4C9EEB24";
   return hover ? "#7f7f7f24" : null;
 }
 
@@ -1105,11 +1189,11 @@ function workspaceMenu(w) {
   return [
     openHereMenu(w),
     Divider(),
-    Button(() => (isAsleep(w()) ? t("wake") : t("sleep")), () => setAsleep(w(), !isAsleep(w()))),
+    Button(computed(() => (isAsleep(w()) ? t("wake") : t("sleep"))), () => setAsleep(w(), !isAsleep(w()))),
     Button(() => t("rename"), () => setEditingId(w().id)),
-    Button(() => (w()?.pinned ? t("unpin") : t("pin")), () =>
+    Button(computed(() => (w()?.pinned ? t("unpin") : t("pin"))), () =>
       cmux("workspace.action", { action: w()?.pinned ? "unpin" : "pin", workspace_id: w().id })),
-    Button(() => (w()?.unread > 0 ? t("markRead") : t("markUnread")), () =>
+    Button(computed(() => (w()?.unread > 0 ? t("markRead") : t("markUnread"))), () =>
       cmux("workspace.action", { action: w()?.unread > 0 ? "mark_read" : "mark_unread", workspace_id: w().id })),
     Divider(),
     Button(() => t("closeOthers"), act("close_others")).destructive(),
@@ -1119,33 +1203,40 @@ function workspaceMenu(w) {
 
 function workspaceRow(w) {
   // Title on the left, "4m" + state icon on the right; on hover the time and
-  // icon yield to the close button.
-  const st = () => agentState(w());
+  // icon yield to the close button. Memos: the bindings below wake only when one of
+  // these changes, not on every data update and clock tick (see stable()).
+  const kind = computed(() => agentState(w()).kind);
+  const since = computed(() => agentState(w()).since);
+  const sel = computed(() => isSelected(w()));
+  const title = computed(() => cleanTitle(workspaceTitle(w())));
+  const progress = computed(() => progressKey(w()));
+  const confirming = computed(() => isConfirmingClose(w()));
+  const label = computed(() => w()?.progress?.label ?? ago(since()));
   return ZStack({ alignment: "trailing" }, [
     VStack({ spacing: 4 }, [
       HStack({ spacing: 8 }, [
-        Text(() => cleanTitle(workspaceTitle(w())))
+        Text(title)
           .font(13)
-          .weight(() => (st().kind === "unread" ? "semibold" : "regular"))
+          .weight(() => (kind() === "unread" ? "semibold" : "regular"))
           .lineLimit(1)
           .truncation("tail")
           .marquee()
-          .color(() => (S1() ? (st().kind === "inactive" && !isSelected(w()) ? "#00000080" : ink(isSelected(w())))
-            : st().kind === "inactive" && !isSelected(w()) ? "tertiary" : "primary")),
+          .color(() => (S1() ? (kind() === "inactive" && !sel() ? "#00000080" : ink(sel()))
+            : kind() === "inactive" && !sel() ? "tertiary" : "primary")),
         Spacer({ minLength: 0 }),
         HStack({ spacing: 8 }, [
-          Text(() => w()?.progress?.label ?? ago(st().since))
+          Text(label)
             .font(12)
-            .color(() => (st().kind === "needs" ? ORANGE : st().kind === "unread" ? BLUE : S1() ? ink(isSelected(w())) : "secondary")),
-          stateIcon(st, () => isSelected(w())),
+            .color(() => (kind() === "needs" ? ORANGE : kind() === "unread" ? BLUE : S1() ? ink(sel()) : "secondary")),
+          stateIcon(kind, sel),
         ])
           .fixedSize()
           .layoutPriority(2)
-          .opacity(() => (isConfirmingClose(w()) ? 0 : 1))
+          .opacity(() => (confirming() ? 0 : 1))
           .hideOnHover(),
       ])
         .frame({ maxWidth: "infinity" }),
-      progressSegments(w, () => isSelected(w())),
+      progressSegments(progress, sel),
     ]),
     // Close asks first, like Cmd+W: the first click turns into a red "Close?",
     // the second closes. Either control closes while asking, so it doesn't matter
@@ -1158,24 +1249,24 @@ function workspaceRow(w) {
         .background(s1(RED, INK))
         .cornerRadius(s1(8, 0))
         .fixedSize()
-        .opacity(() => (isConfirmingClose(w()) ? 1 : 0))
+        .opacity(() => (confirming() ? 1 : 0))
         .onTap(() => closeWorkspace(w().id)),
       Image("xmark")
-        .font(9).weight("semibold").color(() => (S1() ? ink(isSelected(w())) : "secondary"))
+        .font(9).weight("semibold").color(() => (S1() ? ink(sel()) : "secondary"))
         .padding(4)
         .cornerRadius(9)
         .hoverBackground("#7f7f7f4a")
         .showOnHover()
-        .opacity(() => (isConfirmingClose(w()) ? 0 : 1))
+        .opacity(() => (confirming() ? 0 : 1))
         .onTap(() => (isConfirmingClose(w()) ? closeWorkspace(w().id) : askClose(w().id))),
     ]),
   ])
     .paddingHorizontal(10)
     .paddingVertical(6)
     .cornerRadius(s1(8, 0))
-    .background(() => (isConfirmingClose(w()) ? (S1() ? "#00000026" : "#FF453A26") : rowBackground(w(), st(), false)))
-    .hoverBackground(() => (isConfirmingClose(w()) ? (S1() ? "#00000033" : "#FF453A33") : rowBackground(w(), st(), true)))
-    .frame(() => ({ maxWidth: "infinity", height: progressCounts(w()) ? ROW_PROGRESS_H : ROW_H }))
+    .background(() => (confirming() ? (S1() ? "#00000026" : "#FF453A26") : rowBackground(sel(), kind(), false)))
+    .hoverBackground(() => (confirming() ? (S1() ? "#00000033" : "#FF453A33") : rowBackground(sel(), kind(), true)))
+    .frame(() => ({ maxWidth: "infinity", height: progress() ? ROW_PROGRESS_H : ROW_H }))
     .onTap(() => {
       cancelClose();
       selectWorkspace(w().id);
@@ -1186,7 +1277,7 @@ function workspaceRow(w) {
 
 function workspaceEditRow(w) {
   return HStack({ spacing: 8 }, [
-    TextField(() => w()?.title ?? "", {
+    TextField(computed(() => w()?.title ?? ""), {
       placeholder: t("wsName"),
       onSubmit: (text) => {
         const title = (text ?? "").trim();
@@ -1292,20 +1383,18 @@ const SIDEBAR_CHROME = 82;   // title bar above the list, the footer buttons bel
                              // so rounding never makes the sidebar scroll (a scroll bar shows on its edge).
                              // At 66 the card's bottom 12 pt sat in cmux's fade above the footer buttons.
 
-function listHeight() {
+const listHeight = computed(() => {
   const entries = flatEntries();
+  const byId = wsById();
   let h = Math.max(0, entries.length - 1) * LIST_SPACING;
   entries.forEach((e, i) => {
     if (e.kind === "header") h += i === 0 ? HEADER_FIRST_H : HEADER_H;
     else if (e.kind === "tab") h += TAB_H;
     else if (e.kind === "more") h += ROW_H;
-    else {
-      const w = (data.workspaces() ?? []).find((x) => x.id === e.wsId);
-      h += progressCounts(w) ? ROW_PROGRESS_H : ROW_H;
-    }
+    else h += progressCounts(byId.get(e.wsId)) ? ROW_PROGRESS_H : ROW_H;
   });
   return h;
-}
+});
 
 function spacerHeight() {
   const win = Number(globalToken("win:")?.v ?? 0);
@@ -1333,7 +1422,7 @@ const DL_FRESH = 30 * 60;
 let seenOverride = 0;
 const [dlTick, setDlTick] = signal(0);
 
-function latestDownload() {
+const latestDownload = stable(() => {
   dlTick();
   const v = globalToken("dl:")?.v;
   if (!v) return null;
@@ -1348,7 +1437,7 @@ function latestDownload() {
   const seen = Math.max(seenOverride, Number(globalToken("dlseen:")?.v) || 0);
   if (nowSecs() - at > DL_FRESH || at <= seen) return null;
   return { at, path, name: path.split("/").pop() };
-}
+});
 
 function hideDownload(at) {
   seenOverride = at;
@@ -1414,7 +1503,7 @@ function listWindow() {
         if (entry.kind === "header") return sectionHeader(entry.section);
         if (entry.kind === "tab") return tabRow(entry);
         if (entry.kind === "more") return moreRow(entry);
-        const w = () => (data.workspaces() ?? []).find((x) => x.id === entry.wsId);
+        const w = () => wsById().get(entry.wsId);
         return entry.editing ? workspaceEditRow(w) : workspaceRow(w);
       }
     ),
@@ -1425,14 +1514,17 @@ function listWindow() {
   return withShadow(list, () => TITLE_H + listHeight());
 }
 
+// The spacer's height follows the clock (the download chip goes stale); as a memo it
+// redraws only when the number changes.
+const spacer = computed(spacerHeight);
+
 sidebar(() =>
   ZStack({ alignment: "top" }, [
     when(S1, desktop),
     VStack({ spacing: 2 }, [
       // Wrapper for a side margin, so a selected row doesn't touch the terminal.
       VStack({ spacing: 0 }, [listWindow()]).paddingHorizontal(6),
-      // The spacer's binding also keeps cmux's order in step with the sidebar.
-      Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacerHeight() + syncOrder() })),
+      Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacer() })),
       downloadChip(),
       activityCard(),
     ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),
