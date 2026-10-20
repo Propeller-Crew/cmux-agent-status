@@ -2,26 +2,38 @@
 # Installs the Claude sidebar for cmux for the current macOS user, or updates it:
 #
 #   curl -fsSL https://raw.githubusercontent.com/sahneo/cmux-claude-sidebar/master/install.sh | bash
-#   ./install.sh [--dry-run] [--install-cmux] [--glass | --no-glass] [--no-launchd]
+#   ./install.sh [--dry-run] [--install-cmux] [--glass | --no-glass] [--master | --releases] [--no-launchd]
 #
 # Run outside a clone, it fetches the repo first (into ~/.cmux-claude-sidebar, or the
 # clone an earlier install points to) and runs that copy. Without cmux, it offers
-# `brew install --cask cmux`. Files are symlinked, so running this again, or
-# `git pull` in the clone, updates a running install. Nothing the person already set
-# is overwritten: cmux.json and Claude's settings.json only get the keys they don't
-# have, after a backup.
+# `brew install --cask cmux`. Files are symlinked into the clone. Nothing the person
+# already set is overwritten: cmux.json and Claude's settings.json only get the keys
+# they don't have, after a backup.
+#
+# Its own clone (~/.cmux-claude-sidebar) is put on the newest release, a vX.Y.Z tag, or
+# on master while there is none yet; with --master it follows master instead. Updates
+# come from scripts/update.sh (the sidebar's "New version" chip runs it). A clone of
+# your own (the repo you run ./install.sh from, or one an earlier install points to) is
+# installed exactly as it is: no fetch, no checkout.
 #
 #   --dry-run       show what would change and write nothing
 #   --install-cmux  install cmux with Homebrew if it's missing, without asking
 #   --glass         also make the terminal glass, without asking (--no-glass: skip it)
+#   --master        follow master, the newest and least tried (CMUX_CLAUDE_SIDEBAR_CHANNEL=master);
+#                   --releases goes back to releases. The choice stays with the clone.
 #   --no-launchd    don't load the background jobs (for testing in a throwaway HOME)
+#   --update        what update.sh runs after moving the clone: the steps a new version
+#                   can need, without questions
 set -eu
 
 REPO_URL=${CMUX_CLAUDE_SIDEBAR_REPO:-https://github.com/sahneo/cmux-claude-sidebar}
 CMUX=${CMUX_BIN:-/Applications/cmux.app/Contents/Resources/bin/cmux}
 PY=/usr/bin/python3     # the same one the launchd job runs
 CMUX_DIR=$HOME/.config/cmux
-DRY=0 GLASS=ask LAUNCHD=1 INSTALL_CMUX=ask
+MANAGED_DIR=${CMUX_CLAUDE_SIDEBAR_DIR:-$HOME/.cmux-claude-sidebar}
+CHANNEL=${CMUX_CLAUDE_SIDEBAR_CHANNEL:-}   # releases | master; empty: what the clone follows, releases at first
+DRY=0 GLASS=ask LAUNCHD=1 INSTALL_CMUX=ask UPDATE=0
+REBUILT=0               # the window watcher was built anew, so its job restarts
 TODO=""                 # what's left for the person, printed at the end
 
 say() { printf '%s\n' "$*"; }
@@ -39,10 +51,59 @@ parse_args() {
       --no-glass) GLASS=no ;;
       --no-launchd) LAUNCHD=0 ;;
       --install-cmux) INSTALL_CMUX=yes ;;
-      -h|--help) say "Usage: install.sh [--dry-run] [--install-cmux] [--glass | --no-glass] [--no-launchd]"; exit 0 ;;
+      --master) CHANNEL=master ;;
+      --releases) CHANNEL=releases ;;
+      --update) UPDATE=1 GLASS=no ;;
+      -h|--help) say "Usage: install.sh [--dry-run] [--install-cmux] [--glass | --no-glass] [--master | --releases] [--no-launchd]"; exit 0 ;;
       *) say "Unknown option: $a (see --help)"; exit 1 ;;
     esac
   done
+  case ${CHANNEL:-releases} in
+    releases|master) ;;
+    *) say "CMUX_CLAUDE_SIDEBAR_CHANNEL is releases or master, not $CHANNEL"; exit 1 ;;
+  esac
+}
+
+# The newest vX.Y.Z among the tag names on stdin.
+newest_release() { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1.2,1n -k2,2n -k3,3n | tail -n 1; }
+
+# A clone the installer looks after: its own copy, or one it marked with a channel. Any
+# other clone is someone's working copy.
+managed() {
+  [ -n "$(git -C "$1" config --get cmux-sidebar.channel 2>/dev/null)" ] && return 0
+  [ "$(cd "$1" && pwd -P)" = "$(cd "$MANAGED_DIR" 2>/dev/null && pwd -P)" ]
+}
+
+# Puts a managed clone on its channel: the newest release, master while there is none
+# yet, or master's newest commit with --master. The channel stays in the clone's git
+# config (cmux-sidebar.channel), for the next run and for update.sh.
+pick_version() {
+  d=$1
+  command -v git >/dev/null 2>&1 || return 0
+  ch=${CHANNEL:-$(git -C "$d" config --get cmux-sidebar.channel || true)}
+  ch=${ch:-releases}
+  if [ "$DRY" = 1 ]; then
+    tag=$(git -C "$d" ls-remote --tags --refs origin 'v*' 2>/dev/null | sed 's#.*refs/tags/##' | newest_release)
+    if [ "$ch" = releases ] && [ -n "$tag" ]; then say "  would install release $tag"; else say "  would install master's newest commit"; fi
+    return 0
+  fi
+  if [ -n "$(git -C "$d" status --porcelain --untracked-files=no)" ]; then
+    say "  it has local changes, so it's installed as it is"
+    return 0
+  fi
+  git -C "$d" config cmux-sidebar.channel "$ch"
+  if ! git -C "$d" fetch -q --tags --force origin; then
+    say "  couldn't reach $(git -C "$d" remote get-url origin), so it's installed as it is"
+    return 0
+  fi
+  tag=$(git -C "$d" tag -l 'v*' | newest_release)
+  if [ "$ch" = releases ] && [ -n "$tag" ]; then
+    if git -C "$d" checkout -q --detach "$tag"; then say "  release $tag"; return 0; fi
+  elif git -C "$d" checkout -q master && git -C "$d" merge -q --ff-only origin/master; then
+    if [ "$ch" = master ]; then say "  master, at $(git -C "$d" log -1 --format=%h)"; else say "  no release yet, so master's newest commit"; fi
+    return 0
+  fi
+  say "  couldn't switch it, so it's installed as it is"
 }
 
 # The repo this script sits in, if it was run from a clone (not piped from curl).
@@ -65,30 +126,30 @@ fetch_and_rerun() {
     d=$(dirname "$(dirname "$link")")
     if [ -f "$d/install.sh" ] && git -C "$d" rev-parse --git-dir >/dev/null 2>&1; then dir=$d; fi
   fi
-  if [ "$DRY" = 1 ]; then
-    if [ -z "$dir" ]; then
-      tmp=$(mktemp -d)
-      say "Dry run: fetching a temporary copy of the repo into $tmp"
-      git clone -q --depth 1 "$REPO_URL" "$tmp/cmux-claude-sidebar"
-      dir=$tmp/cmux-claude-sidebar
-    fi
-  elif [ -n "$dir" ]; then
-    say "Updating the copy an earlier install uses: $dir"
-    if [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then
-      say "  it has local changes, so it's installed as it is"
-    else
-      git -C "$dir" pull -q --ff-only || say "  couldn't fast-forward it, so it's installed as it is"
-    fi
+  if [ -n "$dir" ] && ! managed "$dir"; then
+    say "Installing from your own clone, as it is: $dir"
+  elif [ "$DRY" = 1 ] && [ -z "$dir" ] && [ ! -d "$MANAGED_DIR/.git" ]; then
+    tmp=$(mktemp -d)
+    say "Dry run: fetching a temporary copy of the repo into $tmp"
+    git clone -q "$REPO_URL" "$tmp/cmux-claude-sidebar"
+    dir=$tmp/cmux-claude-sidebar
+    pick_version "$dir"
   else
-    dir=${CMUX_CLAUDE_SIDEBAR_DIR:-$HOME/.cmux-claude-sidebar}
-    if [ -d "$dir/.git" ]; then
-      say "Updating $dir"
-      git -C "$dir" pull -q --ff-only
+    verb=Updating
+    [ "$DRY" = 0 ] || verb="Dry run: would update"
+    if [ -n "$dir" ]; then
+      say "$verb the copy an earlier install uses: $dir"
+    elif [ -d "$MANAGED_DIR/.git" ]; then
+      dir=$MANAGED_DIR
+      say "$verb $dir"
     else
+      dir=$MANAGED_DIR
       say "Downloading cmux-claude-sidebar into $dir"
       git clone -q "$REPO_URL" "$dir"
     fi
+    pick_version "$dir"
   fi
+  export CMUX_SIDEBAR_PICKED=1
   exec sh "$dir/install.sh" "$@"
 }
 
@@ -138,14 +199,27 @@ check_tools() {
   say "cmux ${v:-(version unknown)}, installing from $REPO"
 }
 
+# Links an installed file to the clone, unless it already is.
+link() {
+  [ "$(readlink "$2" 2>/dev/null)" = "$1" ] && return 0
+  run ln -sf "$1" "$2"
+  LINKED="$LINKED $(basename "$2")"
+}
+
 link_files() {
   step "Sidebar files (symlinks into ~/.config/cmux)"
   run mkdir -p "$CMUX_DIR/sidebars" "$CMUX_DIR/icons" "$CMUX_DIR/bin"
-  run ln -sf "$REPO/sidebars/agent-status.js" "$CMUX_DIR/sidebars/agent-status.js"
-  run ln -sf "$REPO/scripts/last-prompt-sync.py" "$CMUX_DIR/last-prompt-sync.py"
-  run ln -sf "$REPO/scripts/claude-worktree.py" "$CMUX_DIR/claude-worktree"
-  run ln -sf "$REPO/scripts/claude-statusline.py" "$CMUX_DIR/claude-statusline.py"
-  [ "$DRY" = 1 ] || say "  linked"
+  LINKED=""
+  link "$REPO/sidebars/agent-status.js" "$CMUX_DIR/sidebars/agent-status.js"
+  link "$REPO/scripts/last-prompt-sync.py" "$CMUX_DIR/last-prompt-sync.py"
+  link "$REPO/scripts/claude-worktree.py" "$CMUX_DIR/claude-worktree"
+  link "$REPO/scripts/claude-statusline.py" "$CMUX_DIR/claude-statusline.py"
+  link "$REPO/scripts/update.sh" "$CMUX_DIR/update.sh"
+  if [ -z "$LINKED" ]; then
+    say "  all in place"
+  elif [ "$DRY" = 0 ]; then
+    say "  linked:$LINKED"
+  fi
 }
 
 # Built only when missing or older than the source, so an update run stays quick.
@@ -157,6 +231,7 @@ build_helpers() {
   elif [ "$DRY" = 1 ]; then
     say "  would build $bin"
   elif swiftc -O "$REPO/scripts/window-watch.swift" -o "$bin" 2>/dev/null; then
+    REBUILT=1
     say "  built the window watcher"
   else
     say "  window watcher not built (needs Xcode command line tools); the activity card sits right under the list"
@@ -245,6 +320,16 @@ activate() {
     todo "The sidebar didn't validate (see above). Run: cmux sidebar validate agent-status"
     return 0
   fi
+  # An update keeps whichever sidebar the person has picked.
+  if [ "$UPDATE" = 1 ]; then
+    if "$CMUX" reload-config >/dev/null 2>&1; then
+      say "  cmux reloaded its settings and the sidebar"
+    else
+      say "  couldn't reach cmux (is it open?)"
+      todo "Open cmux, then run: cmux reload-config"
+    fi
+    return 0
+  fi
   if "$CMUX" reload-config >/dev/null 2>&1 && "$CMUX" sidebar select agent-status >/dev/null 2>&1; then
     say "  agent-status is now cmux's sidebar"
   else
@@ -254,6 +339,9 @@ activate() {
 }
 
 # The jobs go last: they talk to cmux over its socket, which the merged settings open up.
+# A job is (re)loaded only when its plist changed or it isn't loaded; the scripts it runs
+# are symlinks, so it picks up a new version by itself. The window watcher is a built
+# binary, so a rebuild restarts it.
 launch_jobs() {
   step "Background jobs (launchd)"
   for label in com.propeller.cmux-last-prompt com.propeller.cmux-window-watch; do
@@ -262,11 +350,22 @@ launch_jobs() {
     fi
     plist=$HOME/Library/LaunchAgents/$label.plist
     if [ "$DRY" = 1 ]; then
-      say "  would write $plist and load it"
+      say "  would write $plist and load it, unless it's already loaded as it is"
       continue
     fi
     mkdir -p "$HOME/Library/LaunchAgents"
-    sed "s#__HOME__#$HOME#g" "$REPO/launchd/$label.plist" > "$plist"
+    want=$(sed "s#__HOME__#$HOME#g" "$REPO/launchd/$label.plist")
+    loaded=1
+    if [ "$LAUNCHD" = 1 ] && ! launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then loaded=0; fi
+    if [ -f "$plist" ] && [ "$(cat "$plist")" = "$want" ] && [ "$loaded" = 1 ]; then
+      if [ "$label" = com.propeller.cmux-window-watch ] && [ "$REBUILT" = 1 ] && [ "$LAUNCHD" = 1 ]; then
+        launchctl kickstart -k "gui/$(id -u)/$label" >/dev/null && say "  $label restarted (its binary was rebuilt)"
+      else
+        say "  $label unchanged"
+      fi
+      continue
+    fi
+    printf '%s\n' "$want" > "$plist"
     if [ "$LAUNCHD" = 1 ]; then
       launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
       launchctl bootstrap "gui/$(id -u)" "$plist"
@@ -277,12 +376,29 @@ launch_jobs() {
   done
 }
 
+# What the clone is at, for the summary: a release, or a branch and commit.
+version_label() {
+  v=$(git -C "$REPO" tag --points-at HEAD 2>/dev/null | newest_release)
+  if [ -n "$v" ]; then
+    say "$v"
+  else
+    say "$(git -C "$REPO" symbolic-ref -q --short HEAD 2>/dev/null || echo detached) at $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  fi
+}
+
 summary() {
   printf '\n'
   if [ "$DRY" = 1 ]; then
     say "Dry run: nothing was changed."
+  elif [ "$UPDATE" = 1 ]; then
+    # The sync job sees the new version on its next run, so that run happens now.
+    [ "$LAUNCHD" = 0 ] || launchctl kickstart "gui/$(id -u)/com.propeller.cmux-last-prompt" >/dev/null 2>&1 || true
+    say "Up to date: $(version_label). This tab can be closed."
+  elif command -v git >/dev/null 2>&1 && managed "$REPO"; then
+    say "Done: $(version_label). When a new release is out, the sidebar shows a \"New version\" chip:"
+    say "click it, or run: sh ~/.config/cmux/update.sh"
   else
-    say "Done. Update any time by running the same command again."
+    say "Done, from your own clone as it is ($(version_label)). Update it there with git."
   fi
   if [ -n "$TODO" ]; then
     say "Left for you:$TODO"
@@ -292,12 +408,23 @@ summary() {
 main() {
   parse_args "$@"
   find_repo || fetch_and_rerun "$@"
+  # Run from inside its own copy (~/.cmux-claude-sidebar/install.sh): the version first,
+  # then that version's installer.
+  if [ "$UPDATE" = 0 ] && [ -z "${CMUX_SIDEBAR_PICKED:-}" ] && command -v git >/dev/null 2>&1 && managed "$REPO"; then
+    step "Version"
+    before=$(git -C "$REPO" rev-parse HEAD)
+    pick_version "$REPO"
+    if [ "$(git -C "$REPO" rev-parse HEAD)" != "$before" ]; then
+      export CMUX_SIDEBAR_PICKED=1
+      exec sh "$REPO/install.sh" "$@"
+    fi
+  fi
   check_tools
   link_files
   build_helpers
   merge_config
   statusline
-  glass
+  [ "$UPDATE" = 1 ] || glass
   activate
   launch_jobs
   summary

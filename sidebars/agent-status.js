@@ -46,6 +46,7 @@ const STRINGS = {
     skin: "Look", skinNormal: "Normal (glass)", skinSystem1: "System 1 (pixel terminal too)",
     skinLite: "System 1 lite (terminal keeps its font)",
     spinner: "Working indicator", spinColor: "Colour", spinPulse: "Pulse", spinDots: "Three dots", spinBraille: "Braille ⠋⠙⠹",
+    newVersion: (v) => "New version " + v, update: "Update", whatsNew: "What's new", hideVersion: "Hide this version",
   },
   uk: {
     pinned: "Закріплені", needs: "Чекає на тебе", unread: "Нове", working: "В роботі", fresh: "Без задачі", done: "Готово", inactive: "Сплять",
@@ -66,6 +67,7 @@ const STRINGS = {
     skin: "Вигляд", skinNormal: "Звичайний (скло)", skinSystem1: "System 1 (і піксельний термінал)",
     skinLite: "System 1 lite (шрифт у терміналі звичайний)",
     spinner: "Індикатор", spinColor: "Колір", spinPulse: "Пульс", spinDots: "Три крапки", spinBraille: "Брайль ⠋⠙⠹",
+    newVersion: (v) => "Нова версія " + v, update: "Оновити", whatsNew: "Що нового", hideVersion: "Сховати цю версію",
   },
 };
 const DURATION = { en: ["h", "m"], uk: [" год", " хв"] };
@@ -103,7 +105,7 @@ const token = (w, name) => {
 };
 // Account-wide tokens live on one workspace (the sync job picks it); read once per
 // data update. { id, v }: the owner's id and the value.
-const GLOBAL_TOKENS = ["lim:", "day:", "win:", "focus:", "dl:", "dlseen:", "lang:", "skin:", "spin:"];
+const GLOBAL_TOKENS = ["lim:", "day:", "win:", "focus:", "dl:", "dlseen:", "lang:", "skin:", "spin:", "upd:", "updhide:"];
 const globalTokens = stable(() => {
   const out = {};
   for (const w of data.workspaces() ?? []) {
@@ -1425,8 +1427,8 @@ const listHeight = computed(() => {
 function spacerHeight() {
   const win = Number(globalToken("win:")?.v ?? 0);
   if (!win) return 12;
-  // Root children: list, spacer, chip, card; the hidden chip keeps its gaps.
-  const chip = latestDownload() ? DL_H : 0;
+  // Root children: list, spacer, chips, card; hidden chips keep their gaps.
+  const chip = chipsHeight();
   // System 1 puts the list in a window: a title bar on top, a shadow below.
   const frame = S1() ? TITLE_H + SHADOW : 0;
   return Math.max(12, win - SIDEBAR_CHROME - listHeight() - frame - chip - CARD_H - 3 * 2);
@@ -1435,7 +1437,10 @@ function spacerHeight() {
 // Everything above stacked: the sidebar scrolls, so System 1's desktop gets this
 // height, or its flexible frame would take its full line count.
 const contentHeight = () =>
-  TITLE_H + SHADOW + listHeight() + spacerHeight() + (latestDownload() ? DL_H : 0) + CARD_H + 3 * 2;
+  TITLE_H + SHADOW + listHeight() + spacerHeight() + chipsHeight() + CARD_H + 3 * 2;
+
+// The new-version and download chips share one root slot, each its height while shown.
+const chipsHeight = () => (newVersion() ? UPD_H : 0) + (latestDownload() ? DL_H : 0);
 
 // --- latest download ---------------------------------------------------------------
 // A screenshot AirDropped from the iPhone lands in ~/Downloads; the watcher reports
@@ -1517,6 +1522,75 @@ function downloadChip() {
     .opacity(() => (d() ? 1 : 0));
 }
 
+// --- new version -------------------------------------------------------------------
+// Once a day the sync job asks GitHub for the latest release; while one is out that's
+// newer than the installed release, it sets "upd:<tag>:<release page>" (never on a
+// development clone: on a branch, or with local changes). Click: scripts/update.sh in a
+// new terminal tab, where its output stays to read. A hidden version is "updhide:<tag>",
+// carried by the sync job; the chip comes back for the next release. No clock in here:
+// the chip only re-runs when the tokens change.
+const UPD_H = 40;
+let updHiddenOverride = null;
+const [updTick, setUpdTick] = signal(0);
+
+const newVersion = stable(() => {
+  updTick();
+  const v = globalToken("upd:")?.v;
+  if (!v) return null;
+  const i = v.indexOf(":");
+  const tag = v.slice(0, i);
+  if (tag === updHiddenOverride || tag === globalToken("updhide:")?.v) return null;
+  let url;
+  try {
+    url = decodeURIComponent(v.slice(i + 1));
+  } catch (e) {
+    return null;
+  }
+  // "v0.3.0" reads "v0.3"; a patch release keeps its number.
+  return { tag, url, label: tag.replace(/\.0$/, "") };
+});
+
+function hideVersion(tag) {
+  updHiddenOverride = tag;
+  setUpdTick(updTick() + 1);
+  setGlobalToken("updhide:", tag);
+}
+
+function runUpdate() {
+  const ws = data.workspaces() ?? [];
+  const w = ws.find((x) => isSelected(x)) ?? ws[0];
+  if (!w) return;
+  cmux("surface.create", { workspace_id: w.id, initial_input: "sh ~/.config/cmux/update.sh\r", focus: true });
+}
+
+function updateChip() {
+  const u = () => newVersion();
+  const body = HStack({ spacing: 8 }, [
+    Image("arrow.down.circle").font(12).color(BLUE),
+    Text(() => (u() ? t("newVersion")(u().label) : "")).font(12).color(s1("primary", INK)).lineLimit(1).truncation("tail"),
+    Spacer({ minLength: 4 }),
+    Text(() => t("update")).font(11).weight("semibold").color(BLUE).fixedSize(),
+  ])
+    .paddingHorizontal(12)
+    .paddingVertical(8)
+    .background(s1("#4C9EEB1f", PAPER))
+    .hoverBackground(s1("#4C9EEB33", "#4C9EEB1f"))
+    .borderColor(s1(CLEAR, INK))
+    .borderWidth(s1(0, 1))
+    .cornerRadius(s1(12, 0))
+    .frame({ maxWidth: "infinity" })
+    .cursor("pointer")
+    .onTap(() => u() && runUpdate())
+    .contextMenu([
+      Button(() => t("whatsNew"), () => u() && openURL(u().url)),
+      Button(() => t("hideVersion"), () => u() && hideVersion(u().tag)),
+    ]);
+  return VStack({ spacing: 0 }, [body])
+    .paddingHorizontal(6)
+    .frame(() => ({ maxWidth: "infinity", height: u() ? UPD_H : 0 }))
+    .opacity(() => (u() ? 1 : 0));
+}
+
 // --- root --------------------------------------------------------------------------
 // The list; on System 1 a window with a title bar, a 1 pt border and a hard shadow.
 function listWindow() {
@@ -1551,7 +1625,7 @@ sidebar(() =>
       // Wrapper for a side margin, so a selected row doesn't touch the terminal.
       VStack({ spacing: 0 }, [listWindow()]).paddingHorizontal(6),
       Rectangle().fill("#00000000").frame(() => ({ maxWidth: "infinity", height: spacer() })),
-      downloadChip(),
+      VStack({ spacing: 0 }, [updateChip(), downloadChip()]),
       activityCard(),
     ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),
   ]).frame({ maxWidth: "infinity", maxHeight: "infinity" }),
