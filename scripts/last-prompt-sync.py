@@ -84,6 +84,11 @@ CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # workspace carrying it isn't dropped, and gone from the next description written.
 TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille)|upd:v\d+\.\d+\.\d+:\S+|updhide:v\d+\.\d+\.\d+)$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
+# The name the "Claude workspace" command gives a new workspace (config/cmux.snippet.jsonc
+# and its Ukrainian variant), and the tab titles Claude shows before it names the chat.
+PLACEHOLDER_NAMES = {"New session", "Нова сесія"}
+GENERIC_TAB_TITLES = {"Claude Code", "Claude", "claude"}
+SPINNER_PREFIX = re.compile(r"^[\s✳✶✻✽✢✦·•●○◐◓◑◒⠀-⣿*]+")
 HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
 # What the watcher reported (window height, newest download). Kept apart from the cache:
 # the full run reads it but never writes it, so a report landing mid-run isn't overwritten.
@@ -683,6 +688,24 @@ def swap_owner_token(prefix, value):
         "--action", "set-description", "--description", " · ".join(parts))
 
 
+def name_new_workspaces(sessions, dry_run):
+    """A workspace opened by the Claude command keeps its placeholder name: Claude titles
+    its tab after the first prompt, not the workspace. Give the workspace that title."""
+    clean = lambda s: SPINNER_PREFIX.sub("", s or "")   # Claude's spinner glyph, as in the sidebar
+    agent_surfaces = {s["surface_id"].upper() for s in sessions if s.get("surface_id")}
+    tree = cmux_json("tree", "--json", "--id-format", "both")
+    for window in tree.get("windows", []):
+        for w in window.get("workspaces", []):
+            if clean(w.get("title")) not in PLACEHOLDER_NAMES:
+                continue
+            titles = [clean(s.get("title")) for p in w.get("panes", []) for s in p.get("surfaces", [])
+                      if (s.get("id") or "").upper() in agent_surfaces]
+            title = next((t for t in titles if t and t not in PLACEHOLDER_NAMES
+                          and t not in GENERIC_TAB_TITLES and not t.startswith(("/", "~"))), None)
+            if title and not dry_run:
+                run(CMUX, "workspace-action", "--workspace", w["id"], "--action", "rename", "--title", title)
+
+
 def main(dry_run=False):
     try:
         with open(CACHE) as f:
@@ -811,6 +834,7 @@ def main(dry_run=False):
     cache["_known"] = sorted(known & {w["id"] for w in ours})   # forget closed workspaces
     cache.pop("_unstuck", None)      # left by the set_agent_lifecycle attempt this replaced
     cache.pop("_skin", None)         # left by the System 1 look
+    name_new_workspaces(sessions, dry_run)
     relaunch_without_forwarder(sessions, ours, children, commands, cache, dry_run)
     close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dry_run)
     with open(CACHE, "w") as f:
