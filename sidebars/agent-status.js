@@ -397,21 +397,27 @@ const pixelText = (text, px, color) =>
 
 // The hard drop shadow: a black strip down the right and along the bottom. Sidebars
 // have no shadow or offset, so the strips are views, and they need the box's height,
-// which is known for everything that gets one (see listHeight()). Zero-size in normal.
+// which is known for everything that gets one (see listHeight()). Mounted only on
+// System 1: even at zero size the strips' stacks made SwiftUI measure the whole list
+// several times a frame, so every hover fade lagged ~100 ms. `build` makes the box,
+// once per skin, since a node can't sit in two branches.
 const SHADOW = 2;
-function withShadow(box, heightFn) {
-  return VStack({ spacing: 0, alignment: "leading" }, [
-    HStack({ spacing: 0, alignment: "top" }, [
-      box,
-      VStack({ spacing: 0 }, [
-        Rectangle().fill(CLEAR).frame(() => ({ width: S1() ? SHADOW : 0, height: S1() ? SHADOW : 0 })),
-        Rectangle().fill(INK).frame(() => ({ width: S1() ? SHADOW : 0, height: S1() ? Math.max(0, heightFn() - SHADOW) : 0 })),
+function withShadow(build, heightFn) {
+  return Group({}, [
+    when(S1, () => VStack({ spacing: 0, alignment: "leading" }, [
+      HStack({ spacing: 0, alignment: "top" }, [
+        build(),
+        VStack({ spacing: 0 }, [
+          Rectangle().fill(CLEAR).frame({ width: SHADOW, height: SHADOW }),
+          Rectangle().fill(INK).frame(() => ({ width: SHADOW, height: Math.max(0, heightFn() - SHADOW) })),
+        ]),
       ]),
-    ]),
-    HStack({ spacing: 0 }, [
-      Rectangle().fill(CLEAR).frame(() => ({ width: SHADOW, height: S1() ? SHADOW : 0 })),
-      Rectangle().fill(INK).frame(() => ({ maxWidth: "infinity", height: S1() ? SHADOW : 0 })),
-    ]),
+      HStack({ spacing: 0 }, [
+        Rectangle().fill(CLEAR).frame({ width: SHADOW, height: SHADOW }),
+        Rectangle().fill(INK).frame({ maxWidth: "infinity", height: SHADOW }),
+      ]),
+    ])),
+    when(() => !S1(), build),
   ]);
 }
 
@@ -1013,7 +1019,7 @@ function activityCard() {
   // The outer margin lives on a wrapper: in a JS sidebar the modifiers are props of
   // one node, not layers, so a second .paddingHorizontal would replace the first.
   // 6 pt, like the list's wrapper: the card's edges line up with a row's background.
-  return VStack({ spacing: 0 }, [withShadow(activityCardBody(), () => CARD_BODY_H)])
+  return VStack({ spacing: 0 }, [withShadow(activityCardBody, () => CARD_BODY_H)])
     .paddingHorizontal(6)
     .paddingTop(6)
     .frame({ maxWidth: "infinity", height: CARD_H });
@@ -1594,7 +1600,7 @@ function updateChip() {
 // --- root --------------------------------------------------------------------------
 // The list; on System 1 a window with a title bar, a 1 pt border and a hard shadow.
 function listWindow() {
-  const list = VStack({ spacing: 0 }, [
+  const list = () => VStack({ spacing: 0 }, [
     when(S1, () => titleBar("agent-status")),
     Reorderable(
       { items: flatEntries, key: (e) => e.id, spacing: 2, onMove: handleMove },
