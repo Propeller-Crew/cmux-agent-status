@@ -30,6 +30,7 @@
     "chevron.right": (c) => `<path d="m9 5 7 7-7 7" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`,
     "chevron.down": (c) => `<path d="m5 9 7 7 7-7" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`,
     xmark: (c) => `<path d="M5 5l14 14M19 5 5 19" stroke="${c}" stroke-width="3.4" stroke-linecap="round"/>`,
+    "arrow.down.circle": (c) => `<circle cx="12" cy="12" r="10" fill="none" stroke="${c}" stroke-width="2.2"/><path d="M12 7v9m-4-4 4 4 4-4" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`,
     photo: (c) => `<rect x="2.5" y="4" width="19" height="16" rx="3" fill="none" stroke="${c}" stroke-width="2.2"/><path d="m3 18 5.5-6 4 4 3-3 5.5 5" fill="none" stroke="${c}" stroke-width="2.2"/>`,
     doc: (c) => `<path d="M6 2.5h8l5 5v14H6z" fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round"/>`,
     "pin.fill": (c) => `<path fill="${c}" d="M15 2l7 7-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/>`,

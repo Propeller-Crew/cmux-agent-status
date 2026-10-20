@@ -26,11 +26,17 @@ For every cmux workspace this writes into its description:
   " · lim:<5h %>/<5h reset>/<week %>/<week reset>" (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
   line writes), " · lang:uk|en" (the sidebar's language, set from the sidebar),
   " · spin:color|pulse|dots|braille" (how a working row shows it works, set from the
-  sidebar) and
+  sidebar),
   " · skin:normal|system1|system1-lite" (the sidebar's look, set from the sidebar or
   scripts/skin.sh; when it differs from the terminal's, this script runs
-  `scripts/skin.sh --terminal-only` so the terminal follows the sidebar).
+  `scripts/skin.sh --terminal-only` so the terminal follows the sidebar),
+  " · upd:<tag>:<release page>" (a newer release is out, see below) and
+  " · updhide:<tag>" (the sidebar's chip for that release was hidden, carried here).
 Descriptions that aren't in this format are left alone.
+
+Once a day, on an install that sits on a release (see install_state()), one request to
+GitHub's releases/latest, without a token, says whether a newer release is out; without
+a network nothing happens until the next day. A development clone never asks.
 
 While a batch of background agents runs, the workspace also gets a "done/total"
 progress bar (cmux set-progress), counted from <session>/subagents/*.meta.json
@@ -63,13 +69,15 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
-CMUX = "/Applications/cmux.app/Contents/Resources/bin/cmux"
+CMUX = os.environ.get("CMUX_BIN") or "/Applications/cmux.app/Contents/Resources/bin/cmux"
 CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
-TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille))$")
+TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille)|upd:v\d+\.\d+\.\d+:\S+|updhide:v\d+\.\d+\.\d+)$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
 # What the watcher reported (window height, newest download). Kept apart from the cache:
@@ -90,6 +98,15 @@ CLOSE_PER_RUN = 3         # sessions closed per run, so a restart doesn't type i
 # The rest (a first prompt, --resume, --continue, --session-id) belongs to the first launch.
 RESUME_FLAGS = {"--permission-mode": True, "--model": True, "--add-dir": True,
                 "--dangerously-skip-permissions": False}
+# The clone this script runs from (the installed files are symlinks into it).
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+# Where install.sh puts its own clone; install.sh also marks the clones it manages.
+MANAGED_DIR = os.path.expanduser("~/.cmux-claude-sidebar")
+RELEASE = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
+UPDATE_EVERY = 24 * 3600
+UPDATE_TIMEOUT = 3
+# Only tests set it, to a mock of GitHub's releases/latest.
+RELEASES_API = os.environ.get("CMUX_SIDEBAR_RELEASES_API")
 
 
 def run(*args):
@@ -472,6 +489,99 @@ def rate_limit_token():
         return None
 
 
+def git(*args):
+    """A git command in the clone: its output, or None when it failed."""
+    try:
+        r = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def head_ref():
+    """The clone's HEAD as git keeps it ("ref: refs/heads/master" or a commit), read from the
+    file: it only says when to look at the install again, so no git call on every run."""
+    path = os.path.join(REPO, ".git")
+    try:
+        if os.path.isfile(path):               # a worktree: .git names the real git dir
+            with open(path) as f:
+                path = os.path.join(REPO, f.read().split("gitdir:", 1)[1].strip())
+        with open(os.path.join(path, "HEAD")) as f:
+            return f.read().strip()
+    except (OSError, IndexError):
+        return None
+
+
+def version(tag):
+    m = RELEASE.fullmatch(tag or "")
+    return tuple(map(int, m.groups())) if m else None
+
+
+def install_state():
+    """What an update would move this clone from: the release tag it sits on, "master" for
+    an install from before the first release, or None, and then nothing is checked: a
+    development clone (not one install.sh manages, on another branch, or with local
+    changes) or an install that follows master by choice (install.sh --master)."""
+    channel = git("config", "--get", "cmux-sidebar.channel")
+    if not channel and os.path.realpath(REPO) != os.path.realpath(MANAGED_DIR):
+        return None
+    if (channel or "releases") != "releases" or git("status", "--porcelain", "--untracked-files=no") != "":
+        return None
+    branch = git("symbolic-ref", "-q", "--short", "HEAD")
+    if branch:
+        return "master" if branch == "master" else None
+    tags = [t for t in (git("tag", "--points-at", "HEAD") or "").split() if version(t)]
+    return max(tags, key=version) if tags else None
+
+
+def releases_api():
+    """GitHub's releases/latest for the clone's origin."""
+    if RELEASES_API:
+        return RELEASES_API
+    m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$", git("remote", "get-url", "origin") or "")
+    return f"https://api.github.com/repos/{m.group(1)}/{m.group(2)}/releases/latest" if m else None
+
+
+def latest_release(api):
+    """[tag, release page] of the newest published release, or None while there is none."""
+    req = urllib.request.Request(api, headers={"Accept": "application/vnd.github+json",
+                                               "User-Agent": "cmux-claude-sidebar"})
+    try:
+        with urllib.request.urlopen(req, timeout=UPDATE_TIMEOUT) as r:
+            rel = json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+    tag, page = rel.get("tag_name") or "", rel.get("html_url") or ""
+    return [tag, page] if version(tag) and page else None
+
+
+def update_token(cache):
+    """"upd:<tag>:<release page>" while a release newer than the installed one is out.
+    The install is looked at again when HEAD moves (an update just ran) and once a day; on
+    that daily look an install on a release asks GitHub, once, whatever the answer."""
+    u = cache.setdefault("_update", {})
+    head, now = head_ref(), time.time()
+    stale = now - u.get("checked", 0) > UPDATE_EVERY
+    if stale or head != u.get("head"):
+        u["head"], u["installed"] = head, install_state()
+    if stale:
+        u["checked"] = now
+        api = u["installed"] and releases_api()
+        try:
+            if api:
+                u["latest"] = latest_release(api)
+        except (OSError, ValueError):
+            pass                               # no network, rate-limited: it waits a day
+    installed, latest = u.get("installed"), u.get("latest")
+    if not installed or not latest:
+        return None
+    if installed != "master" and version(latest[0]) <= version(installed):
+        return None
+    return f"upd:{latest[0]}:{quote(latest[1], safe=':/')}"
+
+
 def our_workspaces():
     workspaces = cmux_json("workspace", "list", "--json").get("workspaces", [])
     return [w for w in workspaces
@@ -611,6 +721,11 @@ def main(dry_run=False):
     if focus and time.time() - int(focus.split(":")[1]) > FOCUS_SECONDS:
         focus = None                 # the timer ran out; the sidebar has notified
     seen = carried(ours, "dlseen:")
+    hidden = carried(ours, "updhide:") or cache.get("_updhide")
+    cache["_updhide"] = hidden
+    update = update_token(cache)
+    if update and hidden and update.split(":")[1] == hidden.split(":")[1]:
+        update = None                # hidden in the sidebar until a newer one is out
 
     # "new": a workspace this script has never seen before and that has no prompt yet,
     # i.e. one you just opened. A restored session can also lack a readable prompt
@@ -643,6 +758,8 @@ def main(dry_run=False):
             lang if is_owner else None,
             skin if is_owner else None,
             spin if is_owner else None,
+            update if is_owner else None,
+            hidden if is_owner else None,
         ]))
         if current != wanted:
             run(CMUX, "workspace-action", "--workspace", w["id"],
