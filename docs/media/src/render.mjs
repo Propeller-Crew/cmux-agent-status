@@ -4,6 +4,7 @@
 //   node render.mjs social   out/demo-vertical.mp4 (9:16), out/poster.png (4:5)
 //   node render.mjs features features/*.gif, one short loop per README feature
 //   node render.mjs directions   out/directions/: design directions side by side (?theme=…)
+//   node render.mjs pick balloon  out/directions/: one theme's banner and sections loop
 //   node render.mjs all
 // Needs ffmpeg on PATH and `npm ci` here (Playwright's Chromium).
 import { chromium } from "playwright";
@@ -111,23 +112,35 @@ async function features(browser, names) {
   const probe = await open(browser, "mode=feat", 1);
   const all = await probe.page.evaluate(() => window.FEATS);
   await probe.page.close();
-  for (const name of names.length ? names : all) {
-    const { page } = await open(browser, "mode=feat&name=" + name, 2);
-    const dur = await page.evaluate(() => window.DURATION);
-    const fdir = join(OUT, "feat-" + name);
-    rmSync(fdir, { recursive: true, force: true });
-    mkdirSync(fdir, { recursive: true });
-    const count = Math.round(dur * FEAT_FPS);
-    for (let i = 0; i < count; i += 1) {
-      await page.evaluate((t) => window.seek(t), i / FEAT_FPS);
-      await page.screenshot({ path: join(fdir, String(i).padStart(5, "0") + ".png") });
-    }
-    await page.close();
-    const gif = join(dir, name + ".gif");
-    ffmpeg("-framerate", String(FEAT_FPS), "-i", join(fdir, "%05d.png"), "-vf",
-      "split[a][b];[a]palettegen=stats_mode=full:max_colors=96[p];[b][p]paletteuse=dither=none:diff_mode=rectangle", "-loop", "0", gif);
-    console.log(gif, size(gif));
+  for (const name of names.length ? names : all) await loop(browser, "mode=feat&name=" + name, join(dir, name + ".gif"));
+}
+
+async function loop(browser, query, gif) {
+  const { page } = await open(browser, query, 2);
+  const dur = await page.evaluate(() => window.DURATION);
+  const fdir = join(OUT, "feat-" + query.replace(/\W+/g, "-"));
+  rmSync(fdir, { recursive: true, force: true });
+  mkdirSync(fdir, { recursive: true });
+  const count = Math.round(dur * FEAT_FPS);
+  for (let i = 0; i < count; i += 1) {
+    await page.evaluate((t) => window.seek(t), i / FEAT_FPS);
+    await page.screenshot({ path: join(fdir, String(i).padStart(5, "0") + ".png") });
   }
+  await page.close();
+  ffmpeg("-framerate", String(FEAT_FPS), "-i", join(fdir, "%05d.png"), "-vf",
+    "split[a][b];[a]palettegen=stats_mode=full:max_colors=96[p];[b][p]paletteuse=dither=none:diff_mode=rectangle", "-loop", "0", gif);
+  console.log(gif, size(gif));
+}
+
+// A chosen direction, for sign-off before the whole set: its banner and the sections loop.
+async function pick(browser, theme) {
+  const dir = join(OUT, "directions");
+  mkdirSync(dir, { recursive: true });
+  const { page } = await open(browser, "mode=hero&theme=" + theme, 2);
+  await page.screenshot({ path: join(dir, theme + "-banner.png") });
+  await page.close();
+  console.log(join(dir, theme + "-banner.png"));
+  await loop(browser, "mode=feat&name=sections&theme=" + theme, join(dir, theme + "-sections.gif"));
 }
 
 // One frame of a feature loop: node render.mjs fpeek close 1.8 → out/fpeek-close-1.8.png
@@ -155,12 +168,13 @@ async function directions(browser, names) {
     await page.close();
     console.log(join(dir, file));
   };
-  for (const name of names.length ? names : Object.keys(themes)) {
+  const full = Object.keys(themes).filter((k) => themes[k].poster);
+  for (const name of names.length ? names : full) {
     await shot(`mode=hero&theme=${name}`, `${name}-banner.png`, 2);
     await shot(`mode=feat&name=sections&t=2.2&theme=${name}`, `${name}-tile.png`, 2);
     await shot(`mode=poster&theme=${name}`, `${name}-poster.png`, 1);
   }
-  const rows = Object.entries(themes).map(([k, v], i) => `<section>
+  const rows = full.map((k) => [k, themes[k]]).map(([k, v], i) => `<section>
     <h2><span>${String.fromCharCode(65 + i)}</span> ${v.label}</h2><p>${v.why}</p>
     <div class="row"><img class="b" src="${k}-banner.png"><img class="t" src="${k}-tile.png"><img class="p" src="${k}-poster.png"></div></section>`).join("");
   writeFileSync(join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><title>Design directions</title>
@@ -195,6 +209,7 @@ try {
   if (what === "fpeek") for (const t of process.argv.slice(4)) await fpeek(browser, process.argv[3], t);
   if (what === "features") await features(browser, process.argv.slice(3));
   if (what === "directions") await directions(browser, process.argv.slice(3));
+  if (what === "pick") await pick(browser, process.argv[3]);
   if (what === "all") await features(browser, []);
   if (what === "stills" || what === "all") await stills(browser);
   if (what === "video" || what === "all") await video(browser);

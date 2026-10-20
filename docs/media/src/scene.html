@@ -857,10 +857,11 @@ function renderFeat(t) {
   sizeStage(FW, FH);
   stage.className = THEME ? "" : "flat";
   stage.innerHTML = "";
-  f.draw(t);
+  const own = THEMES[THEME]?.feat?.[params.get("name") ?? "sections"];
+  if (own) own(t); else f.draw(t);
   // Fade through the background so the loop restarts cleanly.
   const fade = Math.max(1 - span(t, 0, 0.25), span(t, f.dur - 0.35, f.dur));
-  if (fade > 0) stage.insertAdjacentHTML("beforeend", `<div style="position:absolute;inset:0;z-index:50;background:#0e0f14;opacity:${fade}"></div>`);
+  if (fade > 0) stage.insertAdjacentHTML("beforeend", `<div style="position:absolute;inset:0;z-index:50;background:${THEMES[THEME]?.fade ?? "#0e0f14"};opacity:${fade}"></div>`);
 }
 
 // --- modes --------------------------------------------------------------------------
@@ -1048,7 +1049,7 @@ function renderOcto(t) {
 function renderPoster() {
   // 1080×1350 social still.
   sizeStage(1080, 1350);
-  if (THEMES[THEME]) return THEMES[THEME].poster();
+  if (THEMES[THEME]?.poster) return THEMES[THEME].poster();
   const w = heroWorld();
   caption(`<div class="h1" style="font-size:78px;text-align:center">Every Claude Code agent,<br><span class="grad">at a glance</span></div>
     <div class="sub" style="margin-top:20px;text-align:center;font-size:28px">A sidebar for cmux · open source</div>`, { left: "60px", right: "60px", top: "86px" });
@@ -1064,8 +1065,8 @@ function renderPoster() {
 const THEME = params.get("theme");
 const THEME_CSS = `
   /* System 1: Macintosh, 1984 */
-  body.th-mac #stage { background-color: #fff; background-image: repeating-conic-gradient(#000 0 25%, #fff 0 100%); background-size: 4px 4px; }
-  body.th-mac #stage::after, body.th-swiss #stage::after, body.th-term #stage::after, body.th-manual #stage::after { display: none; }
+  body.th-mac #stage, body.th-balloon #stage { background-color: #fff; background-image: repeating-conic-gradient(#000 0 25%, #fff 0 100%); background-size: 4px 4px; }
+  body.th-mac #stage::after, body.th-swiss #stage::after, body.th-term #stage::after, body.th-manual #stage::after, body.th-balloon #stage::after { display: none; }
   .mwin { position: absolute; background: #fff; border: 2px solid #000; box-shadow: 4px 4px 0 #000; color: #000; }
   .mtitle { position: relative; border-bottom: 2px solid #000; padding: 5px 4px; display: flex; align-items: center; justify-content: center;
             background: repeating-linear-gradient(#000 0 2px, #fff 2px 4px) content-box; }
@@ -1079,6 +1080,15 @@ const THEME_CSS = `
   .micon span { display: inline-block; margin-top: 6px; background: #000; color: #fff; padding: 1px 6px; font-family: Geneva, sans-serif; }
   body.th-mac .sb.solo { border-radius: 0; box-shadow: 0 0 0 2px #000, 5px 5px 0 2px #000; }
   body.th-mac .note span { font: 16px "Pixelify Sans", Geneva, monospace; color: #000; background: #fff; border: 2px solid #000; border-radius: 0; box-shadow: 3px 3px 0 #000; }
+
+  /* System 1 + Balloon Help (System 7): callouts that explain the panel */
+  .sys1box { position: absolute; background: #fff; color: #000; border: 2px solid #000; padding: 30px 34px;
+             box-shadow: inset 0 0 0 4px #fff, inset 0 0 0 6px #000, 4px 4px 0 #000; }
+  .bal { background: #fff; color: #000; border: 2px solid #000; border-radius: 12px; padding: 9px 14px 10px;
+         font-family: "Pixelify Sans", Geneva, monospace; line-height: 1.25; box-shadow: 3px 3px 0 #000; }
+  .nb { display: grid; place-items: center; border-radius: 50%; background: #F5A524; border: 2px solid #000;
+        font-family: "Pixelify Sans", Geneva, monospace; font-weight: 600; color: #000; line-height: 1; }
+  .veil { background-image: repeating-conic-gradient(#000 0 25%, transparent 0 50%); background-size: 4px 4px; }
 
   /* Swiss poster */
   body.th-swiss #stage { background: #F5A524; color: #000; }
@@ -1111,7 +1121,7 @@ const THEME_CSS = `
 if (THEME) {
   document.body.classList.add("th-" + THEME);
   document.head.insertAdjacentHTML("beforeend", `<style>${THEME_CSS}</style>`);
-  if (THEME === "mac") document.head.insertAdjacentHTML("beforeend", '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=block">');
+  if (THEME === "mac" || THEME === "balloon") document.head.insertAdjacentHTML("beforeend", '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=block">');
 }
 
 function put(el, x, y, s) { el.style.position = "absolute"; el.style.transformOrigin = "0 0"; el.style.transform = `translate(${x}px, ${y}px) scale(${s})`; stage.appendChild(el); return el; }
@@ -1129,13 +1139,15 @@ function macWin(title, x, y, wd, ht, fs = 16) {
   d.className = "mwin";
   return d.querySelector(".mbody");
 }
-function macPanel(x, y, s, fs) {
+function macPanel(x, y, s, fs, w = heroWorld(), height = 628, t = 0.2, trans = null) {
   const body = macWin("agent-status", x, y, 252 * s + 4, null, fs);
   const clip = document.createElement("div");
-  clip.style.cssText = `position:relative;width:${252 * s}px;height:${628 * s}px;overflow:hidden`;
-  const sb = sidebar(heroWorld(), 0.2, 628, null);
+  clip.style.cssText = `position:relative;width:${252 * s}px;height:${height * s}px;overflow:hidden`;
+  const sb = sidebar(w, t, height, trans);
   sb.style.transformOrigin = "0 0"; sb.style.transform = `scale(${s})`;
   clip.appendChild(sb); body.appendChild(clip);
+  const r = clip.getBoundingClientRect(), o = stage.getBoundingClientRect();
+  return { x: r.left - o.left, y: r.top - o.top, s };
 }
 function macMenu(h, fs) {
   const bar = html(`<span style="display:inline-flex;align-items:center;gap:${fs * 1.3}px"><span class="slot"></span><b style="font-weight:600">File</b><span>Edit</span><span>View</span><span>Agents</span><span>Special</span></span><span style="margin-left:auto">03:00</span>`,
@@ -1162,6 +1174,29 @@ function leaders(lines, wd, ht, stroke = 1.2) {
   }).join("");
   html(`<svg width="${wd}" height="${ht}" style="display:block">${svg}</svg>`, "left:0;top:0;z-index:5;pointer-events:none");
 }
+
+// Balloon Help: a bubble with a tail on the left or on top; returns the tail's tip.
+function bubble(text, x, y, wd, fs, tail = "left", a = 1) {
+  const svg = tail === "left"
+    ? '<svg width="22" height="26" style="position:absolute;left:-20px;top:10px;overflow:visible"><polyline points="22,1 2,13 22,25" fill="#fff" stroke="#000" stroke-width="2"/></svg>'
+    : '<svg width="26" height="22" style="position:absolute;left:22px;top:-20px;overflow:visible"><polyline points="1,22 13,2 25,22" fill="#fff" stroke="#000" stroke-width="2"/></svg>';
+  html(`${svg}<div>${text}</div>`, `left:${x}px;top:${y}px;width:${wd}px;font-size:${fs}px;opacity:${a}`).className = "bal";
+  return tail === "left" ? { x: x - 16, y: y + 25 } : { x: x + 37, y: y - 16 };
+}
+// Orange number on the panel's edge, and a 1px line from it to a balloon.
+function callout(n, at, tip, d = 26, a = 1) {
+  html(`<svg width="1" height="1" style="overflow:visible;display:block"><line x1="${at.x}" y1="${at.y}" x2="${tip.x}" y2="${tip.y}" stroke="#000" stroke-width="1"/></svg>`, `left:0;top:0;opacity:${a}`);
+  html(String(n), `left:${at.x - d / 2}px;top:${at.y - d / 2}px;width:${d}px;height:${d}px;font-size:${Math.round(d * 0.6)}px;opacity:${a}`).className = "nb";
+}
+// Three rows, one per section the callouts name.
+function calmWorld() {
+  const w = trimmed(baseWorld(), ["e2e", "ios", "docs", "idea", "notes", "dash", "triage"]);
+  w.rows.pay.state = "needs"; w.rows.pay.ago = 30;
+  w.rows.mono.progress = [12, 16];
+  w.selected = null;
+  return w;
+}
+const rowMid = (w, id) => { const e = layout(w).entries.find((x) => x.key === id); return 36 + e.y + e.h / 2; };
 
 const THEMES = {
   mac: {
@@ -1298,9 +1333,53 @@ const THEMES = {
       html(`<div class="mono-l" style="font-size:28px;color:#555;text-align:center;width:1080px">github.com/sahneo/cmux-claude-sidebar</div>`, "left:0;top:1280px");
     },
   },
+
+  balloon: {
+    label: "System 1 + Balloon Help",
+    why: "A's 1-bit desktop and pixel type, with D's numbered callouts spoken as Balloon Help (System 7): a few rows, four balloons that say what each part does for you.",
+    fade: "#fff",
+    hero() {
+      macMenu(30, 17);
+      html(`<div class="pix" style="font-size:56px;line-height:1;font-weight:600">Claude sidebar<br>for cmux</div>
+        <div class="geneva" style="margin-top:20px;font-size:21px">Every Claude Code agent at a glance.</div>
+        <div class="pix" style="margin-top:22px;font-size:17px;text-decoration:underline">github.com/sahneo/cmux-claude-sidebar</div>`, "left:48px;top:84px").className = "sys1box";
+      macIcon(220, 430, 4, "Sidebar", 15);
+      const w = calmWorld(), height = 36 + layout(w).height + 12 + H.CARD + 30;
+      const P = macPanel(586, 62, 1.1, 15, w, height);
+      const edge = (y) => ({ x: P.x + 252 * P.s + 2, y: P.y + y * P.s });
+      [
+        [rowMid(w, "pay"), "An agent asks for permission? It jumps to the top."],
+        [rowMid(w, "copy"), "Done while you were away. Stays bold until you look."],
+        [rowMid(w, "mono"), "Background agents count as work: 12 of 16 finished."],
+        [cardY(height) + 51, "Your 5-hour Claude limit, without opening the app."],
+      ].forEach(([y, text], i) => {
+        const tip = bubble(text, 914, 64 + i * 140, 300, 18);
+        callout(i + 1, edge(y), tip);
+      });
+    },
+    feat: {
+      sections(t) {
+        const w = only(["pay", "copy", "mono", "notes", "dash"]);
+        delete w.rows.mono.progress;
+        w.selected = null;
+        const trans = steps(t, w, [[1.2, (w) => { w.rows.pay.state = "needs"; w.rows.pay.ago = 0; }, 0.7]]);
+        const P = macPanel(14, 18, 1.25, 14, w, 420, t, trans);
+        const wd = 252 * P.s, focus = rowMid(w, "pay") + 17;
+        const a = easeOut(span(t, 2.0, 2.4)), b = easeOut(span(t, 2.3, 2.6));
+        if (a > 0) {
+          html("", `left:${P.x}px;top:${P.y}px;width:${wd}px;height:${36 * P.s}px;opacity:${a}`).className = "veil";
+          html("", `left:${P.x}px;top:${P.y + focus * P.s}px;width:${wd}px;height:${360 - P.y - focus * P.s}px;opacity:${a}`).className = "veil";
+        }
+        if (b > 0) {
+          const tip = bubble("Asks for permission?<br>It jumps to the top.", 236, 190, 232, 16, "top", b);
+          callout(1, { x: P.x + wd + 2, y: P.y + rowMid(w, "pay") * P.s }, tip, 24, b);
+        }
+      },
+    },
+  },
 };
 
-window.THEMES = Object.fromEntries(Object.entries(THEMES).map(([k, v]) => [k, { label: v.label, why: v.why }]));
+window.THEMES = Object.fromEntries(Object.entries(THEMES).map(([k, v]) => [k, { label: v.label, why: v.why, poster: !!v.poster }]));
 
 window.seek = (t) => {
   if (MODE === "video") renderVideo(t);
