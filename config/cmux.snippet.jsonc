@@ -3,7 +3,8 @@
   // Required: the launchd sync job runs outside cmux and needs socket access.
   "automation": { "socketControlMode": "automation" },
 
-  // Glass sidebar: a thin tint, white in light mode, black in dark.
+  // Glass sidebar: a thin tint, white in light mode, black in dark. The terminal can stay
+  // opaque (config/ghostty.config): the glass is the sidebar material, not the window.
   // Also: defaults write com.cmuxterm.app sidebarBlendMode -string behindWindow
   //       defaults write com.cmuxterm.app sidebarMaterial -string sidebar
   "sidebarAppearance": { "tintOpacity": 0.3, "lightModeTintColor": "#FFFFFF", "darkModeTintColor": "#000000" },
