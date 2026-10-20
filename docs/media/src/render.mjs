@@ -4,7 +4,7 @@
 //   node render.mjs social   out/demo-vertical.mp4 (9:16), out/poster.png (4:5)
 //   node render.mjs features features/*.gif, one short loop per README feature
 //   node render.mjs directions   out/directions/: design directions side by side (?theme=…)
-//   node render.mjs pick balloon  out/directions/: one theme's banner and sections loop
+//   node render.mjs pick swiss    out/directions/: one theme's banner and sections loop
 //   node render.mjs all
 // Needs ffmpeg on PATH and `npm ci` here (Playwright's Chromium).
 import { chromium } from "playwright";
@@ -35,8 +35,6 @@ const size = (p) => (statSync(p).size / 1024 / 1024).toFixed(2) + " MB";
 async function open(browser, query, dpr) {
   const page = await browser.newPage({ deviceScaleFactor: dpr, viewport: { width: 1920, height: 1920 } });
   await page.addInitScript((o) => { window.__OCTO = o; }, octopus());
-  // The sidebar's own code, for pictures of the real thing (?mode=looks).
-  await page.addInitScript((s) => { window.__SIDEBAR = s; }, readFileSync(SIDEBAR, "utf8"));
   await page.goto(SCENE + "?" + query);
   await page.waitForFunction(() => window.ready);
   await page.evaluate(() => document.fonts.ready);
@@ -70,7 +68,6 @@ async function stills(browser) {
   await still(browser, "hero", join(MEDIA, "hero.png"));
   // GitHub's social preview: the banner at 1280×640, under its 1 MB limit.
   await still(browser, "hero", join(MEDIA, "social-preview.png"), 1);
-  await still(browser, "looks", join(MEDIA, "looks.png"));
   // Plain product shots, without the marketing style around them.
   await still(browser, "window&theme=plain", join(MEDIA, "window.png"), 2, true);
   await still(browser, "cards&theme=plain", join(MEDIA, "cards.png"), 2, true);
