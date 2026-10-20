@@ -12,6 +12,7 @@
 <p align="center">
   <a href="#install"><b>Install</b></a> ·
   <a href="#features"><b>Features</b></a> ·
+  <a href="#updating"><b>Updating</b></a> ·
   <a href="#how-it-works"><b>How it works</b></a> ·
   <a href="docs/media/demo.mp4"><b>Video (28 s)</b></a>
 </p>
@@ -165,7 +166,7 @@ Needs macOS. One command:
 curl -fsSL https://raw.githubusercontent.com/sahneo/cmux-claude-sidebar/master/install.sh | bash
 ```
 
-It fetches the repo into `~/.cmux-claude-sidebar` and offers to install cmux with Homebrew (`brew install --cask cmux`) if it's missing. Then it links the sidebar into `~/.config/cmux` and adds only the missing keys from [`config/cmux.snippet.jsonc`](config/cmux.snippet.jsonc) to your `cmux.json`. It backs the file up first and keeps the values you already set. For the limit card it sets a minimal Claude Code status line if you have none, and if you have your own it shows the two lines to add. Finally it loads two small launchd jobs and selects the sidebar. The glass terminal is a y/N question. To see what it would do without changing anything, run `curl -fsSL … | bash -s -- --dry-run`.
+It fetches the latest release into `~/.cmux-claude-sidebar` and offers to install cmux with Homebrew (`brew install --cask cmux`) if it's missing. Then it links the sidebar into `~/.config/cmux` and adds only the missing keys from [`config/cmux.snippet.jsonc`](config/cmux.snippet.jsonc) to your `cmux.json`. It backs the file up first and keeps the values you already set. For the limit card it sets a minimal Claude Code status line if you have none, and if you have your own it shows the two lines to add. Finally it loads two small launchd jobs and selects the sidebar. The glass terminal is a y/N question. To see what it would do without changing anything, run `curl -fsSL … | bash -s -- --dry-run`.
 
 ### Or paste this into Claude Code
 
@@ -181,10 +182,12 @@ Claude reads [INSTALL.md](INSTALL.md), shows you the plan, asks about the glass 
 Needs cmux ≥ 0.65 (`brew install --cask cmux`; custom sidebars beta, on by default) and Python 3 (macOS ships it).
 
 ```sh
-git clone https://github.com/sahneo/cmux-claude-sidebar ~/code/cmux-claude-sidebar
-~/code/cmux-claude-sidebar/install.sh --dry-run   # what it would change
-~/code/cmux-claude-sidebar/install.sh
+git clone https://github.com/sahneo/cmux-claude-sidebar ~/.cmux-claude-sidebar
+~/.cmux-claude-sidebar/install.sh --dry-run   # what it would change
+~/.cmux-claude-sidebar/install.sh             # puts the clone on the latest release, then installs
 ```
+
+A clone anywhere else counts as your own working copy: `install.sh` installs it exactly as it is, and you update it with git.
 
 What the script does, if you'd rather do it yourself:
 
@@ -198,9 +201,28 @@ What the script does, if you'd rather do it yourself:
 
 The `automation` socket mode in the snippet is required: the sync job runs from launchd, outside cmux. `config/ghostty.config` is optional: a glass terminal, with extra left padding because a translucent cmux pane shows a 1 pt seam where text would start; it goes to `~/.config/ghostty/config`.
 
-Update: run the install command again (or `git pull` in the clone: the installed files are symlinks, and cmux hot-reloads the sidebar).
-
 Uninstall: right-click the sidebar button → Workspaces, then stop the background jobs: `launchctl bootout gui/$(id -u)/com.propeller.cmux-last-prompt` and `…/com.propeller.cmux-window-watch`. Your previous settings are in `~/.config/cmux/cmux.json.bak-*` and `~/.claude/settings.json.bak-*`.
+
+## Updating
+
+<img src="docs/media/update-chip.png" width="252" alt="A New version v0.3 chip above the activity card">
+
+You get releases (`v0.2.0`, `v0.3.0`, …), not every commit on master. Once a day the sync job asks GitHub whether a newer release is out (one request, no token; offline it waits for the next day). When there is one, a **New version** chip shows above the activity card:
+
+- **click** it to update: a terminal tab opens and runs `~/.config/cmux/update.sh`, so you see what it does;
+- **right-click** → *What's new* opens the release page, *Hide this version* hides the chip until the next release.
+
+Nothing updates on its own. From a terminal it's the same:
+
+```sh
+sh ~/.config/cmux/update.sh
+```
+
+It moves `~/.cmux-claude-sidebar` to the newest release and repeats only the install steps a new version can need: the links, the Swift helpers (rebuilt when their source changed), the `cmux.json` keys you don't have yet (yours are never overwritten), the launchd jobs (reloaded only when their plist changed) and `cmux reload-config`. It prints what changed; run again, it changes nothing.
+
+Want everything as soon as it's on master (less tried, may break)? Add `--master`: `curl -fsSL … | bash -s -- --master`, or `install.sh --master`. `update.sh` then pulls master, and there's no chip; `--releases` goes back.
+
+The installer and `update.sh` only move their own clone. If the sidebar runs from a clone of your own (on a branch, or with local changes), there's no chip, and `update.sh` says so and leaves it alone.
 
 ## How it works
 
@@ -208,6 +230,7 @@ Uninstall: right-click the sidebar button → Workspaces, then stop the backgrou
 | --- | --- | --- |
 | `sidebars/agent-status.js` | `~/.config/cmux/sidebars/` | The sidebar (cmux's reactive JS runtime). Started from cmux's bundled `workspaces.js` template. |
 | `scripts/last-prompt-sync.py` | `~/.config/cmux/` | Every 15 s: last prompt per workspace from the Claude transcripts, background work, agent progress, usage limits. Writes them into the workspace description (`last prompt @<epoch> · bg · zz@<epoch>`, plus `lim:… · lang:…` on one workspace), the only field an outside process can set and a sidebar can read. Leaves descriptions in any other format alone. |
+| `scripts/update.sh` | `~/.config/cmux/update.sh` | Moves the install to the newest release and re-runs `install.sh --update`. The New version chip runs it; the sync job writes `upd:<tag>:<release page>` on one workspace when GitHub has a newer release (checked once a day). |
 | `scripts/extract-claude-icon.swift` | run by `install.sh` | Copies cmux's own Claude icon to `~/.config/cmux/icons/claude.png` for the tab-strip button. |
 | `launchd/com.propeller.cmux-last-prompt.plist` | `~/Library/LaunchAgents/` | Runs the sync job. Log: `~/.config/cmux/last-prompt-sync.log`. |
 | `scripts/window-watch.swift` + `launchd/com.propeller.cmux-window-watch.plist` | `~/.config/cmux/bin/`, `~/Library/LaunchAgents/` | Watches cmux's window height and the newest file in ~/Downloads and passes them on (`last-prompt-sync.py --window` / `--download`). |

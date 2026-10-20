@@ -12,11 +12,13 @@ You're installing a custom sidebar for [cmux](https://cmux.com) for the person y
 
 ## 2. Get the repo
 
-If `~/.config/cmux/sidebars/agent-status.js` is already a symlink, the sidebar is installed: use the clone it points to (`readlink` it, two folders up) and `git pull --ff-only` there if `git status` is clean. Otherwise:
+If `~/.config/cmux/sidebars/agent-status.js` is already a symlink, the sidebar is installed. To update it, run `sh ~/.config/cmux/update.sh` (if the install is the person's own clone, it says so and leaves it alone) and go to step 5. Without `~/.config/cmux/update.sh` (an install from before releases), continue with the clone the symlink points to (`readlink` it, two folders up). Otherwise:
 
 ```sh
 git clone https://github.com/sahneo/cmux-claude-sidebar ~/.cmux-claude-sidebar
 ```
+
+`install.sh` puts this clone on the latest release (a `vX.Y.Z` tag), or on master while there is none. Only if the person asks for the newest unreleased code, add `--master` to the commands below.
 
 ## 3. Show the plan
 
@@ -55,7 +57,7 @@ All three should succeed. If cmux wasn't running, ask the person to open it, the
 
 ## 6. Report back
 
-In a few lines: that the sidebar is on; which keys were added to `cmux.json` and where the backups are; whether the limit card will fill in (it does after the next Claude reply, once the status line has run); and anything from the installer's "Left for you" list. Tell them that running the same install command again updates it.
+In a few lines: that the sidebar is on; which keys were added to `cmux.json` and where the backups are; whether the limit card will fill in (it does after the next Claude reply, once the status line has run); and anything from the installer's "Left for you" list. Tell them that when a new release is out, the sidebar shows a "New version" chip above the activity card: a click updates, a right-click shows what's new.
 
 ## Undo
 
