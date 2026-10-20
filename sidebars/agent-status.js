@@ -368,7 +368,7 @@ function syncOrder() {
 // and "win:<points>" on one workspace, and "st:<prompts>/<min>" on each.
 const LIMIT_SEGMENTS = 16;
 const PAGES = ["limit", "focus", "today", "session"];
-const [page, setPage] = signal(1);
+const [page, setPage] = signal(0);
 // cmux hands a sidebar no theme value: the card follows light/dark the way the rows
 // do, through a material and the semantic text colours that cmux resolves per theme.
 const CARD_BG = "regularMaterial";
