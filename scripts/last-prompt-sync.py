@@ -52,20 +52,26 @@ into the same terminal. cmux's own Agent Hibernation would do this, but it refus
 sessions (lifecycle_unknown, then process_scope_unsafe, 20.10.2026). Run with
 `--dry-run` to see what it would close and reopen without touching anything.
 
-When cmux misses the end of a Claude turn (its Stop hook record never lands, and the
-session stays "running", so the sidebar spins over an agent that's waiting for you), a
-session whose live Claude ended its turn more than 90 s ago with nothing queued is
-reported idle to cmux once (`set_agent_lifecycle … idle` on its socket).
+A Claude that cmux started without its hook forwarder (`cmux hooks claude spool-forwarder`,
+a child of the claude process that carries hook events such as Stop to cmux) loses those
+events, and its row can spin over an agent that waits for you. Such a session, once it's
+free the same way as above (idle by Claude's own ~/.claude/sessions/<pid>.json for a
+minute, an empty prompt, no dialog, nothing of its own running, a workspace you aren't
+looking at), is restarted at once: `/exit`, "Keep worktree" if it asks, then
+`claude --resume <session> <its flags>` in the same terminal. The new Claude starts its
+forwarder and the conversation goes on. One per run, each session at most every 30 min.
+(Telling cmux `set_agent_lifecycle … idle` instead doesn't move its status: it answers OK
+and the pill stays, 20.10.2026.)
 
 Runs from launchd every 15 s (launchd/com.propeller.cmux-last-prompt.plist); the window
 watcher (scripts/window-watch.swift) calls it with `--window <points>` on every resize.
 """
+import base64
 import glob
 import json
 import os
 import re
 import shlex
-import socket
 import subprocess
 import sys
 import time
@@ -91,8 +97,12 @@ IDLE_GAP = 300   # seconds between transcript entries still counted as time in t
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
 SLEEP_AFTER = 24 * 3600   # no prompt for this long: the sidebar's "Sleeping" (its INACTIVE_AFTER)
 WAKE_GRACE = 2 * 3600     # a session reopened here isn't closed again for this long
-STUCK_AFTER = 90          # a turn over this long while cmux still says "running": tell it idle
-CMUX_SOCKET = os.environ.get("CMUX_SOCKET_PATH") or os.path.expanduser("~/.local/state/cmux/cmux.sock")
+CLAUDE_SESSIONS = os.path.expanduser("~/.claude/sessions")   # Claude's own <pid>.json per live process
+FORWARDER_GRACE = 120     # a Claude younger than this may still be starting its hook forwarder
+SETTLED_FOR = 60          # idle this long by Claude's own account before it's restarted
+RELAUNCH_AFTER = 30 * 60  # a session restarted for a missing forwarder isn't again for this long
+RELAUNCH_PER_RUN = 1
+EXIT_WAIT = 15            # seconds a restart waits for Claude to quit after /exit
 CLOSE_PER_RUN = 3         # sessions closed per run, so a restart doesn't type into thirty at once
 # Flags carried over when a closed session is reopened, and whether each takes a value.
 # The rest (a first prompt, --resume, --continue, --session-id) belongs to the first launch.
@@ -350,7 +360,13 @@ def close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dr
         if not w:
             closed.pop(surface)                # the workspace is gone
             continue
-        if not w.get("selected"):
+        if not w.get("selected") and not c.get("now"):
+            continue                           # a sleeping one waits for you to come back
+        if c.get("pid") and still_exiting(c["pid"]) and "claude" in commands.get(c["pid"], ""):
+            if now - c["at"] > 300:
+                closed.pop(surface)            # it never quit: leave it as it is
+            else:
+                keep_worktree(c["ws"], surface)
             continue
         st = input_state(c["ws"], surface)
         if st.get("agent"):                    # Claude is back already (you, or a cmux restore)
@@ -406,74 +422,120 @@ def close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dr
         woke.pop(ws)
 
 
-def turn_ended_at(path):
-    """When the transcript's last turn ended (its system/turn_duration entry), or None while
-    a turn runs or a prompt waits. Only the tail is read: what follows a turn's end is a few
-    metadata lines (titles, modes, summaries)."""
+def claude_session(pid):
+    """Claude's own record of a live process: its session, the folder it started in, and
+    whether it's idle, busy or running a shell."""
     try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - 65536))
-            lines = f.read().splitlines()
-    except OSError:
-        return None
-    if size > 65536:
-        lines = lines[1:]                  # the first one is cut
-    for raw in reversed(lines):
-        try:
-            entry = json.loads(raw)
-        except ValueError:
-            continue
-        kind = entry.get("type")
-        if kind == "system" and entry.get("subtype") == "turn_duration" and entry.get("timestamp"):
-            return datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00")).timestamp()
-        if kind in ("user", "assistant", "queue-operation") or str(kind).startswith("api-request"):
-            return None                    # a prompt, a reply, a queued message: not over
-    return None
+        with open(os.path.join(CLAUDE_SESSIONS, f"{pid}.json")) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
 
 
-def unstick_running(sessions, children, commands, listening, cache, dry_run):
-    """cmux misses the end of a Claude turn now and then: the Stop hook runs and spools its
-    record, but no agent.hook.Stop reaches cmux's event log (27 of 148 turns, 19-20.10.2026,
-    with or without queued messages), so the session stays "running" and the sidebar spins
-    until the next prompt. A session cmux calls running whose live Claude ended its turn
-    STUCK_AFTER ago, with nothing queued and no background work, is reported idle once."""
+def process_env(pid):
+    """The CMUX_* variables of a process (`ps eww` prints them after its command)."""
+    return dict(re.findall(r"\b(CMUX_[A-Z0-9_]+)=(\S*)", run("ps", "eww", "-o", "command=", "-p", str(pid))))
+
+
+def launch_arguments(env):
+    """The command line cmux's wrapper was given, before it added its own flags."""
+    try:
+        return base64.b64decode(env.get("CMUX_AGENT_LAUNCH_ARGV_B64", "")).decode().rstrip("\0").split("\0")
+    except ValueError:
+        return []
+
+
+def without_forwarder(children, commands):
+    """Live Claudes started by cmux's wrapper (it adds --settings from ~/.cmuxterm) that
+    have no hook forwarder under them."""
+    return [pid for pid, cmd in commands.items()
+            if os.path.basename(cmd.split(" ", 1)[0]) == "claude" and "/.cmuxterm/claude-settings/" in cmd
+            and not any("hooks claude spool-forwarder" in commands.get(c, "") for c in children.get(pid, []))]
+
+
+def still_exiting(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def keep_worktree(ws, surface):
+    """`/exit` in a worktree session asks "Keep worktree / Remove worktree": keep it, so the
+    conversation resumes there. Only when the screen shows that dialog with Keep picked."""
+    screen = run(CMUX, "read-screen", "--workspace", ws, "--surface", surface, "--lines", "30")
+    if "Exiting worktree session" not in screen:
+        return False
+    picked = [l for l in screen.splitlines() if "❯" in l and " worktree" in l]   # past prompts have ❯ too
+    return bool(picked) and "Keep worktree" in picked[-1] and \
+        cmux_ok("send-key", "--force", "--workspace", ws, "--surface", surface, "enter")
+
+
+def relaunch_without_forwarder(sessions, ours, children, commands, cache, dry_run):
+    """Restarts a free Claude that has no hook forwarder (see the top). Its reopen goes
+    through close_and_reopen's list, marked "now" so it doesn't wait for you."""
     now = time.time()
-    done = cache.setdefault("_unstuck", {})    # session → the turn end already reported
-    for s in sessions:
-        sid, pid = s.get("session_id"), s.get("pid")
-        ws, surface, path = s.get("workspace_id"), s.get("surface_id"), s.get("transcript_path")
-        if s.get("agent_lifecycle") != "running" or not (sid and ws and surface and path):
+    closed = cache.setdefault("_closed", {})
+    relaunched = cache.setdefault("_relaunched", {})   # session → when it was restarted here
+    by_id = {w["id"]: w for w in ours}
+    by_surface = {s.get("surface_id"): s for s in sessions}
+    left = RELAUNCH_PER_RUN
+    for pid in without_forwarder(children, commands):
+        me = claude_session(pid)
+        sid, cwd = me.get("sessionId") or "", me.get("cwd")
+        if not SESSION_ID.fullmatch(sid) or not cwd or now - relaunched.get(sid, 0) < RELAUNCH_AFTER:
             continue
-        if not pid or "claude" not in commands.get(pid, ""):
-            continue                           # no live Claude to vouch for
-        end = turn_ended_at(path)
-        if not end or now - end < STUCK_AFTER or done.get(sid) == end:
+        if now - (me.get("startedAt") or now * 1000) / 1000 < FORWARDER_GRACE:
             continue
-        if busy_in_background(s, children, commands, listening):
-            continue                           # it may pick up again by itself
-        if dry_run:
-            print(f"would report idle: session {sid[:8]}, turn ended {int(now - end)} s ago")
+        env = process_env(pid)
+        ws, surface = env.get("CMUX_WORKSPACE_ID"), env.get("CMUX_SURFACE_ID")
+        w = by_id.get(ws)
+        if not w or not surface or surface in closed:
             continue
+        label = f"{w.get('title', '')[:40]} (pid {pid}, no forwarder)"
+        # Claude resumes a conversation from the folder it was started in.
+        transcript = os.path.join(os.path.expanduser("~/.claude/projects"),
+                                  re.sub(r"[^A-Za-z0-9]", "-", cwd), sid + ".jsonl")
         try:
-            reply = cmux_socket(f"set_agent_lifecycle claude_code idle --tab={ws} --panel={surface}")
+            if not os.path.getsize(transcript):
+                continue
         except OSError:
             continue
-        if reply.startswith("OK"):
-            done[sid] = end
-    live = {s.get("session_id") for s in sessions}
-    for sid in [k for k in done if k not in live]:
-        done.pop(sid)
-
-
-def cmux_socket(line):
-    """One line to cmux's control socket (what `printf … | nc -U` does), its reply back."""
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(3)
-        sock.connect(CMUX_SOCKET)
-        sock.sendall(line.encode() + b"\n")
-        return sock.recv(4096).decode(errors="replace").strip()
+        if w.get("selected") or me.get("status") != "idle" \
+                or now - (me.get("statusUpdatedAt") or now * 1000) / 1000 < SETTLED_FOR:
+            if dry_run:
+                print(f"would wait    {label}: not free yet")
+            continue
+        if runs_own_work(pid, children, commands) or fresh_subagent({"transcript_path": transcript}):
+            continue
+        st = input_state(ws, surface)
+        if not st.get("agent") or st.get("state") != "empty" or st.get("waiting_on_human"):
+            continue
+        args = launch_arguments(env) or by_surface.get(surface, {}).get("launch_arguments")
+        cmd = resume_command({"session_id": sid, "cwd": cwd, "launch_arguments": args})
+        if dry_run:
+            print(f"would restart {label}: /exit, then {cmd}")
+            continue
+        if left == 0:
+            break
+        # cmux types nothing over a draft or into an open dialog.
+        if not (cmux_ok("send", "--workspace", ws, "--surface", surface, "/exit")
+                and cmux_ok("send-key", "--workspace", ws, "--surface", surface, "enter")):
+            continue
+        closed[surface] = {"ws": ws, "cmd": cmd, "at": int(now), "pid": pid, "now": True}
+        relaunched[sid] = int(now)
+        left -= 1
+        # Wait for it to quit, so close_and_reopen can type the resume in this same run.
+        for _ in range(EXIT_WAIT * 2):
+            if not still_exiting(pid) and not input_state(ws, surface).get("agent"):
+                break
+            keep_worktree(ws, surface)
+            time.sleep(0.5)
+    for sid in [k for k, at in relaunched.items() if now - at > RELAUNCH_AFTER]:
+        relaunched.pop(sid)
 
 
 def rate_limit_token():
@@ -766,7 +828,8 @@ def main(dry_run=False):
                 "--action", "set-description", "--description", wanted)
 
     cache["_known"] = sorted(known & {w["id"] for w in ours})   # forget closed workspaces
-    unstick_running(sessions, children, commands, listening, cache, dry_run)
+    cache.pop("_unstuck", None)      # left by the set_agent_lifecycle attempt this replaced
+    relaunch_without_forwarder(sessions, ours, children, commands, cache, dry_run)
     close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dry_run)
     with open(CACHE, "w") as f:
         json.dump(cache, f)
