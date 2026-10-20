@@ -135,11 +135,13 @@ fetch_and_rerun() {
     dir=$tmp/cmux-claude-sidebar
     pick_version "$dir"
   else
+    verb=Updating
+    [ "$DRY" = 0 ] || verb="Dry run: would update"
     if [ -n "$dir" ]; then
-      say "Updating the copy an earlier install uses: $dir"
+      say "$verb the copy an earlier install uses: $dir"
     elif [ -d "$MANAGED_DIR/.git" ]; then
       dir=$MANAGED_DIR
-      say "Updating $dir"
+      say "$verb $dir"
     else
       dir=$MANAGED_DIR
       say "Downloading cmux-claude-sidebar into $dir"
