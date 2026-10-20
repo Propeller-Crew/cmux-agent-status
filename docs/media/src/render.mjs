@@ -65,8 +65,9 @@ async function frames(browser, query, count, step, dir, dpr = 1, transparent = f
 
 async function stills(browser) {
   await still(browser, "hero", join(MEDIA, "hero.png"));
-  await still(browser, "window", join(MEDIA, "window.png"), 2, true);
-  await still(browser, "cards", join(MEDIA, "cards.png"), 2, true);
+  // Plain product shots, without the marketing style around them.
+  await still(browser, "window&theme=plain", join(MEDIA, "window.png"), 2, true);
+  await still(browser, "cards&theme=plain", join(MEDIA, "cards.png"), 2, true);
   // Octopus: four ticks cover every mood's loop (idle has four frames).
   const dir = join(OUT, "octo");
   await frames(browser, "mode=octo", 4, 1, dir, 1, false);

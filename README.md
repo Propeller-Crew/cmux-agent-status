@@ -30,7 +30,7 @@ A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs
 
 <table>
 <tr>
-<td colspan="2" align="center"><br><img src="docs/media/features/sections.gif" alt="A row asks for permission and moves to Needs you; another finishes and moves to New" width="60%"><br><br><b>Sections by attention</b><br><sub>Needs you · New · Working · No task yet · Done · Sleeping</sub><br><br></td>
+<td colspan="2" align="center"><br><img src="docs/media/features/sections.gif" alt="A row asks for permission and jumps to the top, into Needs you" width="60%"><br><br><b>Sections by attention</b><br><sub>Needs you · New · Working · No task yet · Done · Sleeping</sub><br><br></td>
 </tr>
 <tr>
 <td width="50%" align="center" valign="top"><br><img src="docs/media/features/ago.gif" alt="Every row says 22h after a restart, then each shows its real time" width="92%"><br><br><b>Real “last time you wrote here”</b><br><sub>From Claude’s transcripts, survives restarts</sub><br><br></td>
