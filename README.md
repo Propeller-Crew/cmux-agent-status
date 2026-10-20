@@ -199,7 +199,7 @@ What the script does, if you'd rather do it yourself:
    [ -n "$limits" ] && printf '%s' "$limits" > "$HOME/.claude/rate-limits.json"
    ```
 
-The `automation` socket mode in the snippet is required: the sync job runs from launchd, outside cmux. `config/ghostty.config` is optional, part of the glass sidebar: it keeps the terminal opaque next to the glass and gives the text some room from the sidebar's edge; it goes to `~/.config/ghostty/config`. The glass itself is cmux's sidebar material (`defaults write com.cmuxterm.app sidebarMaterial -string sidebar` and `sidebarBlendMode -string behindWindow`) and doesn't need a translucent terminal.
+The `automation` socket mode in the snippet is required: the sync job runs from launchd, outside cmux. `config/ghostty.config` is optional, part of the glass sidebar: it keeps the terminal opaque next to the glass, with a softer background (the themes in `config/themes`, off-white in light mode, dark gray in dark) and some room from the sidebar's edge; it goes to `~/.config/ghostty/config`. The glass itself is cmux's sidebar material (`defaults write com.cmuxterm.app sidebarMaterial -string menu`, `sidebarBlendMode -string behindWindow`, and `sidebarState -string active` so it stays glass when the window isn't focused) and doesn't need a translucent terminal. A theme picked in cmux's Settings → Themes wins over the soft one; the installer says so when it finds one.
 
 Uninstall: right-click the sidebar button → Workspaces, then stop the background jobs: `launchctl bootout gui/$(id -u)/com.propeller.cmux-last-prompt` and `…/com.propeller.cmux-window-watch`. Your previous settings are in `~/.config/cmux/cmux.json.bak-*` and `~/.claude/settings.json.bak-*`.
 

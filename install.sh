@@ -308,8 +308,27 @@ glass() {
     fi
     { printf '\n%s\n' "$marker"; cat "$REPO/config/ghostty.config"; } >> "$g"
   fi
+  # The soft themes the block names; a theme of the same name the person has stays.
+  for t in cmux-soft-light cmux-soft-dark; do
+    if [ -e "$HOME/.config/ghostty/themes/$t" ]; then
+      say "  kept your ~/.config/ghostty/themes/$t"
+    else
+      run mkdir -p "$HOME/.config/ghostty/themes"
+      run cp "$REPO/config/themes/$t" "$HOME/.config/ghostty/themes/$t"
+    fi
+  done
+  # A theme picked in cmux's Settings → Themes lives in cmux's own Ghostty file, read after
+  # ~/.config/ghostty/config, and wins over the soft one.
+  cg="$HOME/Library/Application Support/com.cmuxterm.app/config.ghostty"
+  if [ -f "$cg" ] && grep -q '^theme *=' "$cg" && ! grep -q 'cmux-soft-light' "$cg"; then
+    todo "For the soft terminal colours, change the theme line in $cg to: theme = light:cmux-soft-light,dark:cmux-soft-dark (cmux's Settings → Themes wrote it, and it wins over ~/.config/ghostty/config)"
+  fi
+  # menu lets the most desktop through while the text stays readable (with the 0.15 tint
+  # from the snippet); active keeps the glass when the window isn't focused, where
+  # followWindow turns the sidebar flat gray.
   run defaults write com.cmuxterm.app sidebarBlendMode -string behindWindow
-  run defaults write com.cmuxterm.app sidebarMaterial -string sidebar
+  run defaults write com.cmuxterm.app sidebarMaterial -string menu
+  run defaults write com.cmuxterm.app sidebarState -string active
 }
 
 activate() {
