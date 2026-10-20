@@ -980,7 +980,8 @@ const FEATS = {
       w.termTabs.push({ title: "Safari login 500", on: false, in: easeOut(span(t, 4.3, 4.6)) });
     }
     if (t >= 6.9) {
-      w.termBody += `
+      // The answer scrolls the first exchange away, so the callout stays off it.
+      w.termBody = w.termBody.slice(w.termBody.indexOf("\n<span class=\"usr\">&gt; the login") + 1) + `
 <span class="acc">⏺</span> Safari login 500 is done: PR #42
   sets SameSite on the session
   cookie. Merge it?

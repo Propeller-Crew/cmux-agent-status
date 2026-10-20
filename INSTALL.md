@@ -1,6 +1,6 @@
 # Installing the Claude sidebar for cmux (instructions for Claude Code)
 
-You're installing a custom sidebar for [cmux](https://cmux.com) for the person you're working with. `install.sh` does the work and never overwrites their settings; your job is to check, show them the plan, ask the one or two questions below, run it and verify. Keep your messages short and in the person's language.
+You're installing a custom sidebar for [cmux](https://cmux.com) for the person you're working with. `install.sh` does the work and never overwrites their settings; your job is to check, show them the plan, ask the two or three questions below, run it and verify. Keep your messages short and in the person's language.
 
 ## 1. Check what's there
 
@@ -23,7 +23,7 @@ git clone https://github.com/sahneo/cmux-claude-sidebar ~/.cmux-claude-sidebar
 ## 3. Show the plan
 
 ```sh
-~/.cmux-claude-sidebar/install.sh --dry-run --no-glass
+~/.cmux-claude-sidebar/install.sh --dry-run --no-glass --no-tabs
 ```
 
 It writes nothing. Summarise the output for the person in a few lines: which keys get added to `~/.config/cmux/cmux.json` ("added …"), which of their own values stay ("kept yours …"), anything marked `NEEDS A FIX`, and what happens with the Claude Code status line.
@@ -31,15 +31,16 @@ It writes nothing. Summarise the output for the person in a few lines: which key
 Then ask:
 
 1. **Glass sidebar?** The desktop shows blurred through the sidebar, while the terminal stays solid, on a soft off-white or dark gray background (sets the cmux sidebar material, adds `config/ghostty.config` to `~/.config/ghostty/config` and copies its two themes to `~/.config/ghostty/themes`). Default no.
-2. Only if the dry run says they have **their own status line** that doesn't save the limits: may you add the two lines it shows to their status line script? The limit card stays empty without them. Show the exact lines and the file before editing; back the file up first.
+2. **Tasks in new tabs?** A Claude Code skill that comes with the sidebar: when they ask Claude for something that drifts from the current tab (another project, a separate bug, a long job), Claude opens a new cmux tab with its own Claude and a brief, then watches it and reports back. It links `skills/cmux-tabs` into `~/.claude/skills`; they can tick it on or off later in the sidebar's right-click menu. Default no.
+3. Only if the dry run says they have **their own status line** that doesn't save the limits: may you add the two lines it shows to their status line script? The limit card stays empty without them. Show the exact lines and the file before editing; back the file up first.
 
 ## 4. Install
 
 ```sh
-~/.cmux-claude-sidebar/install.sh --glass      # or --no-glass
+~/.cmux-claude-sidebar/install.sh --glass --no-tabs     # or --no-glass, --tabs
 ```
 
-Add `--install-cmux` only if the person agreed to install cmux in step 1. Pass `--glass` or `--no-glass` so the script doesn't stop to ask: you're not at a terminal it can read from.
+Add `--install-cmux` only if the person agreed to install cmux in step 1. Pass `--glass` or `--no-glass` and `--tabs` or `--no-tabs` so the script doesn't stop to ask: you're not at a terminal it can read from.
 
 What it does: symlinks the sidebar and its scripts into `~/.config/cmux`; builds the window watcher and extracts cmux's Claude icon (skipped without Xcode tools); adds the missing keys from `config/cmux.snippet.jsonc` to `cmux.json` (backup `cmux.json.bak-<time>` next to it, and the previous file comes back if cmux rejects the result); sets a minimal Claude Code status line that saves the usage limits if there's none (backup of `~/.claude/settings.json`); reloads cmux and selects the sidebar; loads two launchd jobs (`com.propeller.cmux-last-prompt`, `com.propeller.cmux-window-watch`).
 
