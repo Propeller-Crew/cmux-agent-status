@@ -25,6 +25,12 @@ A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs
   <img src="docs/media/demo.gif" alt="Demo: a workspace moves to Needs you, background agents fill a progress bar and land in New, the activity card flips through limit, focus timer and stats, a download chip pastes a screenshot into Claude" width="100%">
 </p>
 
+<p align="center">
+  <img src="docs/media/before-after.png" alt="Before: the stock cmux sidebar lists six agents as blocks of paths, branches and statuses, and only four fit. After: the same six agents in this sidebar, sorted into Needs you, New, Working and Done, with the usage limit below" width="100%">
+</p>
+
+The same six agents in the same space: stock cmux lists every folder, branch and status, this sidebar sorts them by what they need from you.
+
 ## Features
 
 ### Sorted by what needs you

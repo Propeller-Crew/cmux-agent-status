@@ -1488,6 +1488,91 @@ const THEMES = {
 
 };
 
+// --- before / after (?mode=vs&fmt=2x1|4x5) ---------------------------------------------
+// The stock cmux sidebar next to this one, same six agents and the same size. Stock
+// cmux shows every workspace as a block: title, last notification, status entries,
+// then each pane's folder and branch, and PRs. Made-up projects, as in the hero.
+document.head.insertAdjacentHTML("beforeend", `<style>
+  .stock .list { bottom: 34px; overflow: hidden; }
+  .ws { position: relative; padding: 7px 10px 8px 12px; border-radius: 10px; margin-bottom: 4px; font: 11px/14px var(--sans); color: #ffffffb8; }
+  .ws.sel { background: #2F6FE0; color: #ffffffe0; }
+  .ws b { display: block; font: 600 13px/18px var(--sans); color: #fff; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ws .u { position: absolute; right: 10px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: #4C9EEB; }
+  .ws .s { display: flex; gap: 5px; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ws .s svg { width: 10px; height: 10px; flex: none; }
+  .ws .p { color: #ffffff73; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ws.sel .p { color: #ffffffa8; }
+  .ws .pr { display: flex; gap: 5px; align-items: center; color: #ffffffa8; }
+  .ws .pr u { color: inherit; }
+</style>`);
+const STOCK = [
+  ["mono", "Migrating packages/web, packages/api and 10 more in the background", "Agent(Migrate packages/web)", "run",
+    ["~/code/monorepo", "main", "~/code/monorepo/.worktrees/build-config", "chore/build-config"], "PR #482 open"],
+  ["notes", "Release notes are in CHANGELOG.md", "Write(CHANGELOG.md)", "idle", ["~/code/acme-app", "release/2.4"], "PR #477 merged"],
+  ["pay", "Claude needs your permission to use Bash", "Bash(pnpm db:migrate --env staging)", "input",
+    ["~/code/payments", "feat/payments-client", "~/code/payments/.worktrees/webhooks", "fix/webhook-retries"]],
+  ["dash", "Deployed the dashboard to staging", "Bash(vercel deploy)", "idle", ["~/code/analytics", "main"], "PR #91 merged"],
+  ["copy", "Rewrote the hero and pricing sections, ready for review", "Edit(content/landing.mdx)", "idle", ["~/code/acme-web/marketing", "copy/landing-v3"]],
+  ["ios", "Write(Widget/Timeline.swift)", "Write(Widget/Timeline.swift)", "run",
+    ["~/code/acme-ios", "feat/widget-timeline", "~/code/acme-ios/.worktrees/shots", "chore/app-store-shots"]],
+];
+function vsWorld() {
+  const w = trimmed(baseWorld(), ["e2e", "docs", "idea", "triage"]);
+  w.rows.pay.state = "needs"; w.rows.pay.ago = 30;
+  w.rows.mono.progress = [12, 16];
+  delete w.rows.ios.tabs;
+  w.selected = "mono";
+  return w;
+}
+function stockSidebar(w, height) {
+  const sb = sidebar(w, 0.2, height, null, { solo: true });
+  sb.classList.add("stock");
+  sb.querySelector(".card").remove();
+  const st = { run: [I.bolt, "Running", C.BLUE], idle: ["●", "Idle", "#ffffff73"], input: ["●", "Needs input", "#ffffff73"] };
+  sb.querySelector(".list").innerHTML = STOCK.map(([id, msg, tool, s, paths, pr]) => {
+    const r = w.rows[id], [ico, label, col] = st[s];
+    const icon = (c) => ico.startsWith("<") ? `<span style="color:${c};display:flex">${ico}</span>` : `<span style="color:${c};font-size:8px">${ico}</span>`;
+    return `<div class="ws ${w.selected === id ? "sel" : ""}"><b>${r.title}</b>${r.state === "needs" || r.state === "unread" ? '<i class="u"></i>' : ""}
+      <div>${msg}</div><div class="s">${icon(C.BLUE)}<span style="overflow:hidden;text-overflow:ellipsis">claude-code · ${tool}</span></div>
+      <div class="s">${icon(col)}${label}</div>${paths.map((p) => `<div class="p">${p}</div>`).join("")}
+      ${pr ? `<div class="pr"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M6 7.5v9M18 16.5V10a3 3 0 0 0-3-3h-4"/></svg><u>${pr.split(" ")[0]} ${pr.split(" ")[1]}</u> ${pr.split(" ")[2]}</div>` : ""}</div>`;
+  }).join("");
+  return sb;
+}
+function renderVs() {
+  const tall = FMT === "4x5";
+  const w = vsWorld(), h = calmHeight(w), n = STOCK.length;
+  stage.innerHTML = "";
+  const panels = [stockSidebar(w, h), sidebar(w, 0.2, h, null, { solo: true })];
+  const label = (big, small, count, fs) => `<div style="font:500 ${fs[0]}px/1 'Helvetica Neue';letter-spacing:-0.03em">${big}</div>
+    <div class="mono-l" style="margin-top:${fs[1] * 0.9}px;font-size:${fs[1]}px;color:#555">${small}</div>
+    <div class="mono-l" style="margin-top:${fs[1] * 0.5}px;font-size:${fs[1]}px;color:#FF4F00">${count}</div>`;
+  let s, xs, py, W, H0;
+  if (!tall) {
+    [W, H0, s] = [1280, 640, 1];
+    const gap = 72, x0 = Math.round((W - 2 * 252 * s - gap) / 2);
+    xs = [x0, x0 + 252 * s + gap]; py = Math.round((H0 - h * s) / 2);
+    html(`<svg width="${gap}" height="20" viewBox="0 0 ${gap} 20"><path d="M14 10h${gap - 28}m-8-7 8 7-8 7" fill="none" stroke="#111" stroke-width="1.5"/></svg>`, `left:${x0 + 252 * s}px;top:${py + h * s / 2 - 10}px`);
+  } else {
+    // Captions at 28 px and up; the panels as large as two fit side by side.
+    [W, H0] = [1080, 1350];
+    const gap = 24, top = 250;
+    s = Math.min((W - 48 - gap) / 2 / 252, (H0 - top - 36) / h);
+    const x0 = Math.round((W - 2 * 252 * s - gap) / 2);
+    xs = [x0, x0 + 252 * s + gap]; py = top;
+  }
+  sizeStage(W, H0);
+  panels.forEach((el, i) => put(el, xs[i], py, s));
+  // How many workspaces the stock list shows at this size, counted, not typed.
+  const list = panels[0].querySelector(".list").getBoundingClientRect();
+  const shown = [...panels[0].querySelectorAll(".ws b")].filter((b) => b.getBoundingClientRect().bottom <= list.bottom).length;
+  const labels = [["Before", "cmux as it ships", `${n} agents · ${shown} in view`], ["After", "with Claude sidebar", `${n} agents · all in view`]];
+  labels.forEach(([big, small, count], i) => {
+    if (!tall) html(label(big, small, count, [56, 14]), i ? `left:${xs[1] + 252 * s + 48}px;top:${py + 4}px` : `right:${W - xs[0] + 48}px;top:${py + 4}px;text-align:right`);
+    else html(label(big, small, count, [76, 28]), `left:${xs[i] + 8}px;top:${py - 214}px`);
+  });
+}
+
 window.THEMES = Object.fromEntries(Object.entries(THEMES).map(([k, v]) => [k, { label: v.label, why: v.why, poster: !!v.poster }]));
 
 window.seek = (t) => {
@@ -1505,6 +1590,7 @@ else if (MODE === "cards") renderCards();
 else if (MODE === "octo") renderOcto(0);
 else if (MODE === "poster") renderPoster();
 else if (MODE === "chip") renderChip();
+else if (MODE === "vs") renderVs();
 window.ready = true;
 </script>
 </body>
