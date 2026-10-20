@@ -2,6 +2,7 @@
 //   node render.mjs stills   hero.png, social-preview.png, window.png, cards.png, update-chip.png, octopus.gif
 //   node render.mjs video    demo.mp4 (16:9) and demo.gif for the README
 //   node render.mjs social   out/demo-vertical.mp4 (9:16), out/poster.png (4:5)
+//   node render.mjs vs       before-after.png (2:1), out/before-after-4x5.png
 //   node render.mjs features features/*.gif, one short loop per README feature
 //   node render.mjs directions   out/directions/: design directions side by side (?theme=…)
 //   node render.mjs pick swiss    out/directions/: one theme's banner and sections loop
@@ -105,6 +106,13 @@ async function social(browser) {
     "-pix_fmt", "yuv420p", "-movflags", "+faststart", mp4);
   console.log(mp4, size(mp4));
   await still(browser, "poster", join(OUT, "poster.png"), 1);
+}
+
+// Before / after: the stock cmux sidebar next to this one, same agents, same size.
+async function vs(browser) {
+  mkdirSync(OUT, { recursive: true });
+  await still(browser, "vs&fmt=2x1", join(MEDIA, "before-after.png"));
+  await still(browser, "vs&fmt=4x5", join(OUT, "before-after-4x5.png"), 1);
 }
 
 // One short GIF loop per README feature, into docs/media/features/<name>.gif.
@@ -217,6 +225,7 @@ try {
   if (what === "features") await features(browser, process.argv.slice(3));
   if (what === "directions") await directions(browser, process.argv.slice(3));
   if (what === "pick") await pick(browser, process.argv[3]);
+  if (what === "vs" || what === "all") await vs(browser);
   if (what === "all") await features(browser, []);
   if (what === "stills" || what === "all") await stills(browser);
   if (what === "video" || what === "all") await video(browser);
