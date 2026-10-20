@@ -119,45 +119,6 @@ Click the card or a dot to flip pages.
 
 </details>
 
-### Two looks
-
-<p align="center"><img src="docs/media/looks.png" alt="The panel twice, drawn by its own code: normal, dark glass with coloured sections; System 1, a 1984 Macintosh window with pixel type and a 1-bit octopus" width="72%"></p>
-
-Normal is glass and follows light or dark. System 1 turns the panel and the terminal into
-a 1984 Macintosh: a dotted desktop, hard shadows and pixel type, with the sections keeping
-their colours. One command switches, no restart:
-
-```sh
-scripts/skin.sh system1        # pixel type in the terminal too
-scripts/skin.sh system1-lite   # the terminal keeps your font (long answers read easier)
-scripts/skin.sh normal         # back to glass
-```
-
-Or right-click a section header or the card → **Look** (the terminal follows within 15 s).
-
-<details>
-<summary>How it works, and what it can't skin</summary>
-
-- **Undo all of it**: `scripts/skin.sh uninstall` goes back to normal and leaves
-  `~/.config/ghostty/config` exactly as before.
-
-- **Terminal**: `skin.sh` adds one optional include to `~/.config/ghostty/config`
-  (`config-file = ?cmux-skin`, after a backup to `config.before-skin`) and fills
-  `~/.config/ghostty/cmux-skin` from `config/skins/`; for normal the file is empty, so
-  the result is your own config. Then `cmux reload-config`.
-- **Pixel font**: [Departure Mono](https://departuremono.com) (SIL OFL 1.1, in `fonts/`),
-  which has the whole Ukrainian alphabet; `skin.sh system1` installs it. A cmux sidebar
-  can't load fonts, so the panel draws the same glyphs as rectangles
-  (`scripts/pixel-font.py` regenerates the table).
-- **Light only**: System 1 is black ink on white paper whatever the macOS appearance.
-- **Colour that stays**: Claude Code's own 24-bit colours (diff backgrounds, the orange
-  logo) bypass the terminal palette. `/theme` → a "light, ANSI colours only" theme makes
-  Claude 1-bit too.
-- **Not skinned**: the window frame, tab strip, title bar and the sidebar's footer
-  buttons are native macOS.
-
-</details>
-
 ## Install
 
 Needs macOS. One command:
@@ -246,11 +207,11 @@ Gotchas found on the way (cmux 0.65.2):
 
 ## Images and video
 
-Everything in `docs/media` is drawn from [`docs/media/src/scene.html`](docs/media/src/scene.html): a recreation of the sidebar with demo data (the live one shows real workspace names), with the octopus read straight from `sidebars/agent-status.js`. `looks.png` is the sidebar's own code, run in the browser by [`cmux-sidebar.js`](docs/media/src/cmux-sidebar.js) on the same kind of demo data. After a design change:
+Everything in `docs/media` is drawn from [`docs/media/src/scene.html`](docs/media/src/scene.html): a recreation of the sidebar with demo data (the live one shows real workspace names), with the octopus read straight from `sidebars/agent-status.js`. After a design change:
 
 ```sh
 cd docs/media/src && npm ci
-node render.mjs stills   # hero.png, social-preview.png, looks.png, window.png, cards.png, octopus.gif
+node render.mjs stills   # hero.png, social-preview.png, window.png, cards.png, octopus.gif
 node render.mjs video    # demo.mp4 and demo.gif
 node render.mjs social   # out/demo-vertical.mp4 (9:16) and out/poster.png (4:5)
 node render.mjs features         # features/*.gif, one loop per feature

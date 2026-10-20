@@ -27,9 +27,6 @@ For every cmux workspace this writes into its description:
   line writes), " · lang:uk|en" (the sidebar's language, set from the sidebar),
   " · spin:color|pulse|dots|braille" (how a working row shows it works, set from the
   sidebar),
-  " · skin:normal|system1|system1-lite" (the sidebar's look, set from the sidebar or
-  scripts/skin.sh; when it differs from the terminal's, this script runs
-  `scripts/skin.sh --terminal-only` so the terminal follows the sidebar),
   " · upd:<tag>:<release page>" (a newer release is out, see below) and
   " · updhide:<tag>" (the sidebar's chip for that release was hidden, carried here).
 Descriptions that aren't in this format are left alone.
@@ -83,6 +80,8 @@ from urllib.parse import quote
 CMUX = os.environ.get("CMUX_BIN") or "/Applications/cmux.app/Contents/Resources/bin/cmux"
 CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
+# "skin:" is left over from the System 1 look (tag system1-skin): still ours, so the
+# workspace carrying it isn't dropped, and gone from the next description written.
 TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille)|upd:v\d+\.\d+\.\d+:\S+|updhide:v\d+\.\d+\.\d+)$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
@@ -91,8 +90,6 @@ HOOK_SESSIONS = os.path.expanduser("~/.cmuxterm/claude-hook-sessions.json")
 WATCH_STATE = os.path.expanduser("~/.config/cmux/watch-state.json")
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects/*/*.jsonl")
 FOCUS_SECONDS = 25 * 60   # the sidebar's focus timer
-SKIN_SCRIPT = os.path.join(os.path.dirname(os.path.realpath(__file__)), "skin.sh")
-SKIN_FILE = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "ghostty", "cmux-skin")
 IDLE_GAP = 300   # seconds between transcript entries still counted as time in the session
 SKIP_PREFIXES = ("<local-command", "[Request interrupted", "<system-reminder", "Caveat:")
 SLEEP_AFTER = 24 * 3600   # no prompt for this long: the sidebar's "Sleeping" (its INACTIVE_AFTER)
@@ -675,16 +672,6 @@ def set_owner_token(prefix, value):
     swap_owner_token(prefix, value)
 
 
-def terminal_skin():
-    """The skin the terminal wears: scripts/skin.sh names it on the first line of the file it writes."""
-    try:
-        with open(SKIN_FILE) as f:
-            m = re.match(r"# cmux-skin: (\S+)", f.readline())
-        return m.group(1) if m else "normal"
-    except OSError:
-        return "normal"
-
-
 def swap_owner_token(prefix, value):
     ours = our_workspaces()
     if not ours:
@@ -769,13 +756,8 @@ def main(dry_run=False):
     # Remembered in the cache too: these ride on one workspace, and closing it loses them.
     lang = carried(ours, "lang:") or cache.get("_lang")
     cache["_lang"] = lang
-    skin = carried(ours, "skin:") or cache.get("_skin")
-    cache["_skin"] = skin
     spin = carried(ours, "spin:") or cache.get("_spin")
     cache["_spin"] = spin
-    # Picked in the sidebar: the terminal follows (its Ghostty include and a reload-config).
-    if skin and skin.split(":")[1] != terminal_skin() and os.path.exists(SKIN_SCRIPT):
-        run(SKIN_SCRIPT, "--terminal-only", skin.split(":")[1])
     watched = read_watch_state()
     win = "win:" + watched["win:"] if "win:" in watched else carried(ours, "win:")
     download = "dl:" + watched["dl:"] if "dl:" in watched else carried(ours, "dl:")
@@ -818,7 +800,6 @@ def main(dry_run=False):
             download if is_owner else None,
             seen if is_owner else None,
             lang if is_owner else None,
-            skin if is_owner else None,
             spin if is_owner else None,
             update if is_owner else None,
             hidden if is_owner else None,
@@ -829,6 +810,7 @@ def main(dry_run=False):
 
     cache["_known"] = sorted(known & {w["id"] for w in ours})   # forget closed workspaces
     cache.pop("_unstuck", None)      # left by the set_agent_lifecycle attempt this replaced
+    cache.pop("_skin", None)         # left by the System 1 look
     relaunch_without_forwarder(sessions, ours, children, commands, cache, dry_run)
     close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dry_run)
     with open(CACHE, "w") as f:
@@ -838,8 +820,6 @@ def main(dry_run=False):
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--window" and sys.argv[2].isdigit():
         set_owner_token("win:", sys.argv[2])
-    elif len(sys.argv) == 3 and sys.argv[1] == "--skin" and TOKEN.match("skin:" + sys.argv[2]):
-        swap_owner_token("skin:", sys.argv[2])   # scripts/skin.sh: the sidebar switches at once
     elif len(sys.argv) == 4 and sys.argv[1] == "--download" and sys.argv[2].isdigit():
         # quote() keeps spaces and " · " out of the token; the sidebar decodes it.
         set_owner_token("dl:", f"{sys.argv[2]}:{quote(sys.argv[3])}")
