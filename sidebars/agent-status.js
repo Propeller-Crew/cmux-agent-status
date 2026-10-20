@@ -974,7 +974,14 @@ function workspaceRow(w) {
         .cornerRadius(8)
         .fixedSize()
         .opacity(() => (confirming() ? 1 : 0))
-        .onTap(() => closeWorkspace(w().id)),
+        // Hidden is not untappable: at opacity 0 the pill still sits over the time
+        // and icon, so a plain click there closed the workspace at once. Close only
+        // while asking; otherwise the click selects the row like the rest of it.
+        .onTap(() => {
+          if (isConfirmingClose(w())) return closeWorkspace(w().id);
+          cancelClose();
+          selectWorkspace(w().id);
+        }),
       Image("xmark")
         .font(9).weight("semibold").color("secondary")
         .padding(4)
