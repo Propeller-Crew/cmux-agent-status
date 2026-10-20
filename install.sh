@@ -20,8 +20,9 @@
 #   --install-cmux  install cmux with Homebrew if it's missing, without asking
 #   --glass         also make the sidebar glass next to a solid terminal, without asking
 #                   (--no-glass: skip it)
-#   --tabs          also turn on "Tasks in new tabs" (Claude opens a separate task in a new
-#                   cmux tab), without asking (--no-tabs: don't ask)
+#   --no-tabs       turn off "Tasks in new tabs" (Claude opens a separate task in a new
+#                   cmux tab; on by default, also a tick in the sidebar's right-click menu);
+#                   --tabs turns it back on
 #   --master        follow master, the newest and least tried (CMUX_CLAUDE_SIDEBAR_CHANNEL=master);
 #                   --releases goes back to releases. The choice stays with the clone.
 #   --no-launchd    don't load the background jobs (for testing in a throwaway HOME)
@@ -35,7 +36,7 @@ PY=/usr/bin/python3     # the same one the launchd job runs
 CMUX_DIR=$HOME/.config/cmux
 MANAGED_DIR=${CMUX_CLAUDE_SIDEBAR_DIR:-$HOME/.cmux-claude-sidebar}
 CHANNEL=${CMUX_CLAUDE_SIDEBAR_CHANNEL:-}   # releases | master; empty: what the clone follows, releases at first
-DRY=0 GLASS=ask TABS=ask LAUNCHD=1 INSTALL_CMUX=ask UPDATE=0
+DRY=0 GLASS=ask TABS=keep LAUNCHD=1 INSTALL_CMUX=ask UPDATE=0
 REBUILT=0               # the window watcher was built anew, so its job restarts
 TODO=""                 # what's left for the person, printed at the end
 
@@ -58,7 +59,7 @@ parse_args() {
       --install-cmux) INSTALL_CMUX=yes ;;
       --master) CHANNEL=master ;;
       --releases) CHANNEL=releases ;;
-      --update) UPDATE=1 GLASS=no TABS=no ;;
+      --update) UPDATE=1 GLASS=no ;;
       -h|--help) say "Usage: install.sh [--dry-run] [--install-cmux] [--glass | --no-glass] [--tabs | --no-tabs] [--master | --releases] [--no-launchd]"; exit 0 ;;
       *) say "Unknown option: $a (see --help)"; exit 1 ;;
     esac
@@ -335,24 +336,19 @@ glass() {
   run defaults write com.cmuxterm.app sidebarState -string active
 }
 
-# Optional, off unless asked for: the skill in skills/cmux-tabs, which has Claude open a
-# separate task in a new cmux tab of its own. The sidebar's right-click menu ticks it on
-# and off later; the sync job keeps ~/.claude/skills in step with that tick.
+# On by default: the skill in skills/cmux-tabs, which has Claude open a separate task in a
+# new cmux tab of its own. The sync job links it into ~/.claude/skills unless the sidebar's
+# right-click menu has it unticked; --no-tabs / --tabs set that tick from here.
 tabs_skill() {
-  if [ "$(readlink "$HOME/.claude/skills/cmux-tabs" 2>/dev/null)" = "$REPO/skills/cmux-tabs" ]; then
-    return 0                       # already on; the menu turns it off
-  fi
-  if [ "$TABS" = ask ]; then
-    printf '\n'
-    if ask "Let Claude open a separate task in a new cmux tab by itself (\"Tasks in new tabs\")?"; then TABS=yes; else TABS=no; fi
-  fi
-  if [ "$TABS" != yes ]; then
-    say "  \"Tasks in new tabs\" is off (tick it any time: right-click the sidebar)"
-    return 0
-  fi
   step "Tasks in new tabs"
-  run "$PY" -I "$REPO/scripts/last-prompt-sync.py" --tabs on
-  [ "$DRY" = 1 ] || say "  on: new Claude sessions see the skill (untick it in the sidebar's right-click menu)"
+  case $TABS in
+    no) run "$PY" -I "$REPO/scripts/last-prompt-sync.py" --tabs off
+        [ "$DRY" = 1 ] || say "  off (tick it again: right-click the sidebar → Tasks in new tabs)" ;;
+    yes) run "$PY" -I "$REPO/scripts/last-prompt-sync.py" --tabs on
+         [ "$DRY" = 1 ] || say "  on: Claude opens a separate task in a new cmux tab" ;;
+    *) say "  on unless you untick it: Claude opens a separate task in a new cmux tab."
+       say "  To turn it off: right-click the sidebar → Tasks in new tabs (or install.sh --no-tabs)." ;;
+  esac
 }
 
 activate() {
@@ -471,7 +467,7 @@ main() {
   merge_config
   statusline
   [ "$UPDATE" = 1 ] || glass
-  [ "$UPDATE" = 1 ] || tabs_skill
+  tabs_skill
   activate
   launch_jobs
   summary

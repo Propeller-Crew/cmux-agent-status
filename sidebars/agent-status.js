@@ -45,7 +45,7 @@ const STRINGS = {
     resets: (at, left) => "at " + at + " · " + left, resetDone: "limit has reset",
     spinner: "Working indicator", spinColor: "Colour", spinPulse: "Pulse", spinDots: "Three dots", spinBraille: "Braille ⠋⠙⠹",
     newVersion: (v) => "New version " + v, update: "Update", whatsNew: "What's new", hideVersion: "Hide this version",
-    tabsSkill: "Tasks in new tabs", tabsSkillHelp: "Claude opens a separate task in a new tab of this workspace. New Claude sessions only.",
+    tabsSkill: "Tasks in new tabs", tabsSkillHelp: "Claude opens a separate task in a new tab of this workspace. On by default; a change applies to new Claude sessions.",
   },
   uk: {
     pinned: "Закріплені", needs: "Чекає на тебе", unread: "Нове", working: "В роботі", fresh: "Без задачі", done: "Готово", inactive: "Сплять",
@@ -65,7 +65,7 @@ const STRINGS = {
     resets: (at, left) => "о " + at + " · " + left, resetDone: "ліміт оновився",
     spinner: "Індикатор", spinColor: "Колір", spinPulse: "Пульс", spinDots: "Три крапки", spinBraille: "Брайль ⠋⠙⠹",
     newVersion: (v) => "Нова версія " + v, update: "Оновити", whatsNew: "Що нового", hideVersion: "Сховати цю версію",
-    tabsSkill: "Задачі в нові вкладки", tabsSkillHelp: "Окрему задачу Claude відкриває в новій вкладці цього воркспейсу. Лише в нових сесіях Claude.",
+    tabsSkill: "Задачі в нові вкладки", tabsSkillHelp: "Окрему задачу Claude відкриває в новій вкладці цього воркспейсу. Увімкнено за замовчуванням; зміна діє на нові сесії Claude.",
   },
 };
 const DURATION = { en: ["h", "m"], uk: [" год", " хв"] };
@@ -171,9 +171,9 @@ const spinnerMenu = () => Menu(() => t("spinner"), SPINNERS.map(([name, label]) 
 // A tick in the right-click menu turns on the skill in skills/cmux-tabs: Claude opens a
 // separate task in a new tab of the workspace. Stored as "tabs:on|off"; the sync job links
 // the skill into ~/.claude/skills or takes the link away, so new Claude sessions see it.
-// Off until ticked.
+// On until unticked: no token means on.
 const [tabsOverride, setTabsOverride] = signal(null);
-const tabsSkill = computed(() => (tabsOverride() ?? globalToken("tabs:")?.v) === "on");
+const tabsSkill = computed(() => (tabsOverride() ?? globalToken("tabs:")?.v) !== "off");
 
 function toggleTabsSkill() {
   const v = tabsSkill() ? "off" : "on";

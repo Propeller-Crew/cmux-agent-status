@@ -35,10 +35,11 @@ Once a day, on an install that sits on a release (see install_state()), one requ
 GitHub's releases/latest, without a token, says whether a newer release is out; without
 a network nothing happens until the next day. A development clone never asks.
 
-"tabs:on" links the skill in skills/cmux-tabs into ~/.claude/skills, so new Claude
-sessions open a separate task in a new cmux tab; "tabs:off" (or no token) takes away that
-link, and only a link to a clone of this repo: a file or link of someone else's under
-that name stays. `--tabs on|off` sets it from the command line (install.sh asks).
+"tabs:on", or no token (it's on by default), links the skill in skills/cmux-tabs into
+~/.claude/skills, so new Claude sessions open a separate task in a new cmux tab;
+"tabs:off" takes away that link, and only a link to a clone of this repo: a file or link
+of someone else's under that name stays. `--tabs on|off` sets it from the command line
+(install.sh --tabs / --no-tabs).
 
 While a batch of background agents runs, the workspace also gets a "done/total"
 progress bar (cmux set-progress), counted from <session>/subagents/*.meta.json
@@ -840,7 +841,7 @@ def main(dry_run=False):
     if ours and asked in ("on", "off") and asked_at.isdigit() and int(asked_at) > cache.get("_tabs_at", 0):
         tabs, cache["_tabs_at"] = "tabs:" + asked, int(asked_at)   # `--tabs`, once
     cache["_tabs"] = tabs
-    apply_tabs_skill(tabs == "tabs:on", dry_run)
+    apply_tabs_skill(tabs != "tabs:off", dry_run)
     win = "win:" + watched["win:"] if "win:" in watched else carried(ours, "win:")
     download = "dl:" + watched["dl:"] if "dl:" in watched else carried(ours, "dl:")
     focus = carried(ours, "focus:")

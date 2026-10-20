@@ -953,56 +953,60 @@ const FEATS = {
     note("Three dots, or a colour,<br>a pulse or braille.", Math.max(noteA(t, 2.3, 3.5), noteA(t, 5.3, 7.1)), rows);
   } },
 
-  newtabs: { dur: 9.2, draw(t) {
+  newtabs: { dur: 10, draw(t) {
     const w = only(["pay", "copy", "notes", "dash"]);
     w.selected = "pay";
     w.termTabs = [{ title: "Payments refactor", on: true }];
     const ask = "the login page 500s on Safari, can you look?";
-    w.termBody = `<span class="usr">&gt; switch checkout to the new
+    const first = `<span class="usr">&gt; switch checkout to the new
   payments client</span>
 
 <span class="acc">⏺</span> <b>Update</b>(src/checkout/pay.ts)
 `;
-    w.typed = ask.slice(0, Math.round(span(t, 2.7, 3.6) * ask.length));
-    if (t >= 3.8) {
+    w.termBody = first;
+    w.typed = ask.slice(0, Math.round(span(t, 0.4, 1.3) * ask.length));
+    if (t >= 1.5) {
       w.typed = "";
       w.termBody += `
 <span class="usr">&gt; the login page 500s on Safari,
   can you look?</span>
 `;
     }
-    if (t >= 4.3) {
+    if (t >= 2.0) {
+      // On by default, so the first few times Claude says where this comes from.
       w.termBody += `
 <span class="acc">⏺</span> That's a separate bug, so it gets
   its own tab: <b>Safari login 500</b>.
-  I'll report back here.
+  <span class="dim">Tab delegation is on in the
+  Claude sidebar. To turn it off:
+  right-click → Tasks in new tabs.</span>
 `;
-      w.termTabs.push({ title: "Safari login 500", on: false, in: easeOut(span(t, 4.3, 4.6)) });
+      w.termTabs.push({ title: "Safari login 500", on: false, in: easeOut(span(t, 2.0, 2.3)) });
     }
-    if (t >= 6.9) {
-      // The answer scrolls the first exchange away, so the callout stays off it.
-      w.termBody = w.termBody.slice(w.termBody.indexOf("\n<span class=\"usr\">&gt; the login") + 1) + `
+    if (t >= 4.6) {
+      // The answer scrolls the first exchange away.
+      w.termBody = w.termBody.slice(first.length + 1) + `
 <span class="acc">⏺</span> Safari login 500 is done: PR #42
   sets SameSite on the session
   cookie. Merge it?
 `;
     }
     const trans = steps(t, w, [
-      [4.4, (w) => { w.rows.pay.tabs = [{ title: "Payments refactor", state: "working", ago: 120 }, { title: "Safari login 500", state: "working", ago: 0 }]; }, 0.6],
-      [6.7, (w) => { w.rows.pay.tabs[1].state = "unread"; }, 0.3],
+      [2.1, (w) => { w.rows.pay.tabs = [{ title: "Payments refactor", state: "working", ago: 120 }, { title: "Safari login 500", state: "working", ago: 0 }]; }, 0.6],
+      [4.4, (w) => { w.rows.pay.tabs[1].state = "unread"; }, 0.3],
     ]);
-    // Right-click the Working header, then the last item. Menu rows are 22 px under 5 px
-    // of padding, the divider 11 px: the new-tabs row's middle is 93 px below the top.
+    // Then right-click the Working header: the last item is ticked. Menu rows are 22 px
+    // under 5 px of padding, the divider 11 px: the new-tabs row's middle is 93 px down.
     const hx = 40, hy = rowY(w, "h:working") + 14, my = hy + 2, iy = my + 93;
     const win = featWin(w, t, trans);
-    const p = track(t, [[0.1, 330, 330], [0.8, hx, hy], [1.0, hx, hy], [1.5, 120, iy], [2.3, 120, iy], [2.9, 420, 380]]);
+    const p = track(t, [[0.1, 420, 380], [6.2, 420, 380], [6.9, hx, hy], [7.1, hx, hy], [7.6, 120, iy]]);
     p.t = t;
-    if (t >= 0.9 && t < 2.35) menu(win, PANEL_MENU, hx + 2, my, 160, t >= 1.45 ? 4 : -1);
-    pointer(win, p, [0.95, 2.3]);
+    if (t >= 7.0) menu(win, PANEL_MENU.map((it) => (it === "Tasks in new tabs" ? "✓ " + it : it)), hx + 2, my, 160, t >= 7.55 ? 4 : -1);
+    pointer(win, p, [7.05]);
     shoot(win, { x: 0, y: 0, w: 560, h: 420 });
-    note("Tick it once: a separate<br>task gets its own tab.", noteA(t, 1.5, 2.4), [".menu"]);
-    note("Claude opens the tab<br>and writes it a brief.", noteA(t, 4.6, 6.6), ['[data-key^="pay:"]', ".ttab:nth-child(2)"]);
-    note("It watches that tab and<br>comes back with the result.", noteA(t, 7.1, 9.0), ['[data-key^="pay:"]', ".tbody"]);
+    note("A separate task? Claude<br>opens it in a new tab.", noteA(t, 2.4, 4.3), ['[data-key^="pay:"]', ".ttab:nth-child(2)"]);
+    note("It watches that tab and<br>comes back with the result.", noteA(t, 4.8, 6.6), ['[data-key^="pay:"]', ".tbody"]);
+    note("On by default. Untick<br>it here to turn it off.", noteA(t, 7.6, 9.8), [".menu"]);
   } },
 
   lang: { dur: 5, draw(t) {

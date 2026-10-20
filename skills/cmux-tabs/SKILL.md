@@ -43,6 +43,12 @@ This only applies inside cmux: `echo "$CMUX_WORKSPACE_ID"` prints an id. Without
 
 4. **Tell the user in one line** which tab you opened and what it does. Then carry on with this tab's own work.
 
+5. **The first few times, say why.** This skill is on by default, so the user may not know where this behaviour comes from. Run `sh ~/.claude/skills/cmux-tabs/notice.sh` (it counts in `~/.claude/cmux-tabs-notices`). If it prints `say`, add one more line, in the user's language, e.g.:
+
+   > I opened this in a new tab because the Claude sidebar's tab delegation is on. To turn it off: right-click the sidebar → **Tasks in new tabs**.
+
+   Name the menu item the way the sidebar shows it in their language: **Tasks in new tabs** in English, **Задачі в нові вкладки** in Ukrainian. If it prints `quiet` (after three times), or the script is missing, say nothing about it.
+
 ## Watch it yourself
 
 The user shouldn't have to go and check. Start a background loop that reads the tab, e.g. `cmux read-screen --surface surface:<n> --lines 40` every minute or so, and stop when the other Claude has finished its turn (its prompt is back and empty, the work is reported). As soon as it's done, come back with the result and a proposal: merge the PR, review a diff, the next step.
@@ -58,4 +64,4 @@ Before removing a worktree, check that nothing live points into it — for examp
 
 ## Turning this off
 
-This skill comes with the Claude sidebar for cmux. Right-click the sidebar and untick "Tasks in new tabs"; new Claude sessions stop seeing it.
+This skill comes with the Claude sidebar for cmux and is on by default. Right-click the sidebar and untick "Tasks in new tabs" ("Задачі в нові вкладки"); new Claude sessions stop seeing it.
