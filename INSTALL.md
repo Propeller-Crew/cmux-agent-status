@@ -1,4 +1,4 @@
-# Installing cmux agent status (instructions for Claude Code)
+# Installing the Claude sidebar for cmux (instructions for Claude Code)
 
 You're installing a custom sidebar for [cmux](https://cmux.com) for the person you're working with. `install.sh` does the work and never overwrites their settings; your job is to check, show them the plan, ask the one or two questions below, run it and verify. Keep your messages short and in the person's language.
 
@@ -15,13 +15,13 @@ You're installing a custom sidebar for [cmux](https://cmux.com) for the person y
 If `~/.config/cmux/sidebars/agent-status.js` is already a symlink, the sidebar is installed: use the clone it points to (`readlink` it, two folders up) and `git pull --ff-only` there if `git status` is clean. Otherwise:
 
 ```sh
-git clone https://github.com/sahneo/cmux-agent-status ~/.cmux-agent-status
+git clone https://github.com/sahneo/cmux-claude-sidebar ~/.cmux-claude-sidebar
 ```
 
 ## 3. Show the plan
 
 ```sh
-~/.cmux-agent-status/install.sh --dry-run --no-glass
+~/.cmux-claude-sidebar/install.sh --dry-run --no-glass
 ```
 
 It writes nothing. Summarise the output for the person in a few lines: which keys get added to `~/.config/cmux/cmux.json` ("added …"), which of their own values stay ("kept yours …"), anything marked `NEEDS A FIX`, and what happens with the Claude Code status line.
@@ -34,7 +34,7 @@ Then ask:
 ## 4. Install
 
 ```sh
-~/.cmux-agent-status/install.sh --glass      # or --no-glass
+~/.cmux-claude-sidebar/install.sh --glass      # or --no-glass
 ```
 
 Add `--install-cmux` only if the person agreed to install cmux in step 1. Pass `--glass` or `--no-glass` so the script doesn't stop to ask: you're not at a terminal it can read from.

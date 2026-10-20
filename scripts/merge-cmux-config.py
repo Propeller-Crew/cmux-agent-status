@@ -320,7 +320,7 @@ def main():
             os.makedirs(os.path.dirname(target), exist_ok=True)
             lines = snip_text.split("\n")
             if lines and lines[0].startswith("//"):
-                lines[0] = "// Created by cmux-agent-status's install.sh from config/cmux.snippet.jsonc."
+                lines[0] = "// Created by cmux-claude-sidebar's install.sh from config/cmux.snippet.jsonc."
             with open(target, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines))
         return validate(cmux, target, None, dry)

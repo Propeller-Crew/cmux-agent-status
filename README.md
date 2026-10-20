@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/hero.png" alt="cmux agent status: a sidebar for cmux that sorts Claude Code workspaces by what they need from you" width="100%">
+  <img src="docs/media/hero.png" alt="Claude sidebar for cmux: a sidebar for cmux that sorts Claude Code workspaces by what they need from you" width="100%">
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="docs/media/demo.mp4"><b>Video (28 s)</b></a>
 </p>
 
-# cmux agent status
+# Claude sidebar for cmux
 
 A sidebar for [cmux](https://github.com/manaflow-ai/cmux) when most of your tabs run Claude Code: workspaces grouped by what they need from you, with the state of every agent at a glance, and your Claude usage limit on top.
 
@@ -122,16 +122,16 @@ Click the card or a dot to flip pages.
 Needs macOS. One command:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/sahneo/cmux-agent-status/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sahneo/cmux-claude-sidebar/master/install.sh | bash
 ```
 
-It fetches the repo into `~/.cmux-agent-status` and offers to install cmux with Homebrew (`brew install --cask cmux`) if it's missing. Then it links the sidebar into `~/.config/cmux` and adds only the missing keys from [`config/cmux.snippet.jsonc`](config/cmux.snippet.jsonc) to your `cmux.json`. It backs the file up first and keeps the values you already set. For the limit card it sets a minimal Claude Code status line if you have none, and if you have your own it shows the two lines to add. Finally it loads two small launchd jobs and selects the sidebar. The glass terminal is a y/N question. To see what it would do without changing anything, run `curl -fsSL … | bash -s -- --dry-run`.
+It fetches the repo into `~/.cmux-claude-sidebar` and offers to install cmux with Homebrew (`brew install --cask cmux`) if it's missing. Then it links the sidebar into `~/.config/cmux` and adds only the missing keys from [`config/cmux.snippet.jsonc`](config/cmux.snippet.jsonc) to your `cmux.json`. It backs the file up first and keeps the values you already set. For the limit card it sets a minimal Claude Code status line if you have none, and if you have your own it shows the two lines to add. Finally it loads two small launchd jobs and selects the sidebar. The glass terminal is a y/N question. To see what it would do without changing anything, run `curl -fsSL … | bash -s -- --dry-run`.
 
 ### Or paste this into Claude Code
 
 ```text
-Install the cmux agent status sidebar for me by following
-https://github.com/sahneo/cmux-agent-status/blob/master/INSTALL.md
+Install the Claude sidebar for cmux for me by following
+https://github.com/sahneo/cmux-claude-sidebar/blob/master/INSTALL.md
 ```
 
 Claude reads [INSTALL.md](INSTALL.md), shows you the plan, asks about the glass terminal, installs and checks the result.
@@ -141,9 +141,9 @@ Claude reads [INSTALL.md](INSTALL.md), shows you the plan, asks about the glass 
 Needs cmux ≥ 0.65 (`brew install --cask cmux`; custom sidebars beta, on by default) and Python 3 (macOS ships it).
 
 ```sh
-git clone https://github.com/sahneo/cmux-agent-status ~/code/cmux-agent-status
-~/code/cmux-agent-status/install.sh --dry-run   # what it would change
-~/code/cmux-agent-status/install.sh
+git clone https://github.com/sahneo/cmux-claude-sidebar ~/code/cmux-claude-sidebar
+~/code/cmux-claude-sidebar/install.sh --dry-run   # what it would change
+~/code/cmux-claude-sidebar/install.sh
 ```
 
 What the script does, if you'd rather do it yourself:

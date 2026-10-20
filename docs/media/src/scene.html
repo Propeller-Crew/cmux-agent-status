@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>cmux agent status: media scene</title>
+<title>Claude sidebar for cmux: media scene</title>
 <!--
   One page that draws every image and video in docs/media from a recreation of the
   sidebar with demo data (the live one shows real workspace names). render.mjs opens
@@ -438,7 +438,7 @@ const clamp01 = (x) => Math.max(0, Math.min(1, x));
 const span = (t, a, b) => clamp01((t - a) / (b - a));
 
 const SCENES = [
-  { at: 0, end: 3.4, eyebrow: "", title: 'cmux <span class="grad">agent status</span>', sub: "A sidebar for cmux when most of your tabs run Claude Code." },
+  { at: 0, end: 3.4, eyebrow: "", title: '<span class="grad">Claude sidebar</span><br>for cmux', sub: "Every Claude Code agent at a glance, sorted by what it needs from you." },
   { at: 3.4, end: 8.2, eyebrow: "01", title: "Sorted by what<br>they need from you", sub: "Needs you · New · Working · Done · Sleeping", term: "pay" },
   { at: 8.2, end: 12.6, eyebrow: "02", title: "Background agents<br>count as working", sub: "Progress of a batch, live: 12/16." },
   { at: 12.6, end: 17.6, eyebrow: "03", title: "Your Claude limit,<br>without opening the app", sub: "5-hour and weekly limits, a focus timer, today's stats.", zoom: "card" },
@@ -918,7 +918,7 @@ function renderVideo(t) {
       const box = caption("", { left: capLeft + "px", top: "250px", opacity: capA });
       box.appendChild(o);
       box.insertAdjacentHTML("beforeend", `<div class="h1" style="margin-top:34px">Free &amp; <span class="grad">open source</span></div>
-        <div class="sub" style="margin-top:18px">github.com/<b style="color:#fff">sahneo/cmux-agent-status</b></div>
+        <div class="sub" style="margin-top:18px">github.com/<b style="color:#fff">sahneo/cmux-claude-sidebar</b></div>
         <div style="margin-top:30px;display:flex;gap:10px"><span class="badge">cmux ≥ 0.65</span><span class="badge">Claude Code</span><span class="badge">GPL-3.0</span></div>`);
     } else if (si === 0) {
       const box = caption("", { left: capLeft + "px", top: "330px", opacity: capA, transform: `translateY(${(1 - capIn) * 20}px)` });
@@ -946,7 +946,7 @@ function renderVideo(t) {
       const box = caption("", { left: "80px", right: "80px", top: top + "px", opacity: capA, textAlign: "center" });
       const o = octoCanvas("party", t * 1.6, 8); o.style.margin = "0 auto";
       box.appendChild(o);
-      box.insertAdjacentHTML("beforeend", `<div class="h1" style="margin-top:26px;font-size:76px">Free &amp; <span class="grad">open source</span></div><div class="sub" style="margin-top:16px;font-size:26px">github.com/sahneo/<br><b style="color:#fff">cmux-agent-status</b></div>`);
+      box.insertAdjacentHTML("beforeend", `<div class="h1" style="margin-top:26px;font-size:76px">Free &amp; <span class="grad">open source</span></div><div class="sub" style="margin-top:16px;font-size:26px">github.com/sahneo/<br><b style="color:#fff">cmux-claude-sidebar</b></div>`);
     } else {
       caption(`${scene.eyebrow ? `<div class="eyebrow" style="justify-content:center;font-size:20px"><span class="mono" style="color:#fff">${scene.eyebrow}</span></div>` : ""}
         <div class="h2" style="margin-top:18px;font-size:${si === 0 ? 84 : 70}px">${scene.title}</div><div class="sub" style="margin-top:20px;font-size:28px">${scene.sub}</div>`,
@@ -984,7 +984,7 @@ function renderHero() {
   const w = heroWorld();
   const box = caption("", { left: "84px", top: "150px", width: "600px" });
   box.appendChild(octoCanvas("work", 1, 5));
-  box.insertAdjacentHTML("beforeend", `<div class="h1" style="margin-top:26px;font-size:64px">cmux <span class="grad">agent status</span></div>
+  box.insertAdjacentHTML("beforeend", `<div class="h1" style="margin-top:26px;font-size:64px"><span class="grad">Claude sidebar</span><br>for cmux</div>
     <div class="sub" style="margin-top:18px;font-size:22px;max-width:520px">Every Claude Code agent at a glance: who needs you, who's working, who's done. And your usage limit, right there.</div>
     <div style="margin-top:30px;display:flex;gap:10px"><span class="badge">for cmux</span><span class="badge">Claude Code</span><span class="badge">macOS</span></div>`);
   const sb = sidebar(w, 0.2, 628, null, { solo: true });

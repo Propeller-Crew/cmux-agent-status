@@ -1,10 +1,10 @@
 #!/bin/sh
-# Installs the agent-status sidebar for the current macOS user, or updates it:
+# Installs the Claude sidebar for cmux for the current macOS user, or updates it:
 #
-#   curl -fsSL https://raw.githubusercontent.com/sahneo/cmux-agent-status/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/sahneo/cmux-claude-sidebar/master/install.sh | bash
 #   ./install.sh [--dry-run] [--install-cmux] [--glass | --no-glass] [--no-launchd]
 #
-# Run outside a clone, it fetches the repo first (into ~/.cmux-agent-status, or the
+# Run outside a clone, it fetches the repo first (into ~/.cmux-claude-sidebar, or the
 # clone an earlier install points to) and runs that copy. Without cmux, it offers
 # `brew install --cask cmux`. Files are symlinked, so running this again, or
 # `git pull` in the clone, updates a running install. Nothing the person already set
@@ -17,7 +17,7 @@
 #   --no-launchd    don't load the background jobs (for testing in a throwaway HOME)
 set -eu
 
-REPO_URL=${CMUX_AGENT_STATUS_REPO:-https://github.com/sahneo/cmux-agent-status}
+REPO_URL=${CMUX_CLAUDE_SIDEBAR_REPO:-https://github.com/sahneo/cmux-claude-sidebar}
 CMUX=${CMUX_BIN:-/Applications/cmux.app/Contents/Resources/bin/cmux}
 PY=/usr/bin/python3     # the same one the launchd job runs
 CMUX_DIR=$HOME/.config/cmux
@@ -69,8 +69,8 @@ fetch_and_rerun() {
     if [ -z "$dir" ]; then
       tmp=$(mktemp -d)
       say "Dry run: fetching a temporary copy of the repo into $tmp"
-      git clone -q --depth 1 "$REPO_URL" "$tmp/cmux-agent-status"
-      dir=$tmp/cmux-agent-status
+      git clone -q --depth 1 "$REPO_URL" "$tmp/cmux-claude-sidebar"
+      dir=$tmp/cmux-claude-sidebar
     fi
   elif [ -n "$dir" ]; then
     say "Updating the copy an earlier install uses: $dir"
@@ -80,12 +80,12 @@ fetch_and_rerun() {
       git -C "$dir" pull -q --ff-only || say "  couldn't fast-forward it, so it's installed as it is"
     fi
   else
-    dir=${CMUX_AGENT_STATUS_DIR:-$HOME/.cmux-agent-status}
+    dir=${CMUX_CLAUDE_SIDEBAR_DIR:-$HOME/.cmux-claude-sidebar}
     if [ -d "$dir/.git" ]; then
       say "Updating $dir"
       git -C "$dir" pull -q --ff-only
     else
-      say "Downloading cmux-agent-status into $dir"
+      say "Downloading cmux-claude-sidebar into $dir"
       git clone -q "$REPO_URL" "$dir"
     fi
   fi
@@ -215,7 +215,7 @@ glass() {
   fi
   step "Glass terminal"
   g=$HOME/.config/ghostty/config
-  marker="# cmux-agent-status: glass terminal"
+  marker="# cmux-claude-sidebar: glass terminal"
   if [ -f "$g" ] && grep -qF "$marker" "$g"; then
     say "  already in $g"
   elif [ "$DRY" = 1 ]; then
