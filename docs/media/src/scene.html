@@ -635,7 +635,7 @@ const SHORT = {
 `,
 };
 
-const PANEL_MENU = ["Українська", "English", "-", { label: "Working indicator", sub: true }];
+const PANEL_MENU = ["Українська", "English", "-", { label: "Working indicator", sub: true }, "Tasks in new tabs"];
 const SPINNERS = [["color", "Colour"], ["pulse", "Pulse"], ["dots", "Three dots"], ["braille", "Braille ⠋⠙⠹"]];
 const spinMenu = (cur) => SPINNERS.map(([k, label]) => (k === cur ? "✓ " : "") + label);
 // update.sh's output, wrapped where the feature window's terminal wraps it.
@@ -951,6 +951,62 @@ const FEATS = {
     shoot(box, SB_REGION(0, 282));
     const rows = ['[data-key="h:working"], [data-key="pay"], [data-key="docs"], [data-key="notes"]'];
     note("Three dots, or a colour,<br>a pulse or braille.", Math.max(noteA(t, 2.3, 3.5), noteA(t, 5.3, 7.1)), rows);
+  } },
+
+  newtabs: { dur: 10, draw(t) {
+    const w = only(["pay", "copy", "notes", "dash"]);
+    w.selected = "pay";
+    w.termTabs = [{ title: "Payments refactor", on: true }];
+    const ask = "the login page 500s on Safari, can you look?";
+    const first = `<span class="usr">&gt; switch checkout to the new
+  payments client</span>
+
+<span class="acc">⏺</span> <b>Update</b>(src/checkout/pay.ts)
+`;
+    w.termBody = first;
+    w.typed = ask.slice(0, Math.round(span(t, 0.4, 1.3) * ask.length));
+    if (t >= 1.5) {
+      w.typed = "";
+      w.termBody += `
+<span class="usr">&gt; the login page 500s on Safari,
+  can you look?</span>
+`;
+    }
+    if (t >= 2.0) {
+      // On by default, so the first few times Claude says where this comes from.
+      w.termBody += `
+<span class="acc">⏺</span> That's a separate bug, so it gets
+  its own tab: <b>Safari login 500</b>.
+  <span class="dim">Tab delegation is on in the
+  Claude sidebar. To turn it off:
+  right-click → Tasks in new tabs.</span>
+`;
+      w.termTabs.push({ title: "Safari login 500", on: false, in: easeOut(span(t, 2.0, 2.3)) });
+    }
+    if (t >= 4.6) {
+      // The answer scrolls the first exchange away.
+      w.termBody = w.termBody.slice(first.length + 1) + `
+<span class="acc">⏺</span> Safari login 500 is done: PR #42
+  sets SameSite on the session
+  cookie. Merge it?
+`;
+    }
+    const trans = steps(t, w, [
+      [2.1, (w) => { w.rows.pay.tabs = [{ title: "Payments refactor", state: "working", ago: 120 }, { title: "Safari login 500", state: "working", ago: 0 }]; }, 0.6],
+      [4.4, (w) => { w.rows.pay.tabs[1].state = "unread"; }, 0.3],
+    ]);
+    // Then right-click the Working header: the last item is ticked. Menu rows are 22 px
+    // under 5 px of padding, the divider 11 px: the new-tabs row's middle is 93 px down.
+    const hx = 40, hy = rowY(w, "h:working") + 14, my = hy + 2, iy = my + 93;
+    const win = featWin(w, t, trans);
+    const p = track(t, [[0.1, 170, 372], [6.2, 170, 372], [6.9, hx, hy], [7.1, hx, hy], [7.6, 120, iy]]);
+    p.t = t;
+    if (t >= 7.0) menu(win, PANEL_MENU.map((it) => (it === "Tasks in new tabs" ? "✓ " + it : it)), hx + 2, my, 160, t >= 7.55 ? 4 : -1);
+    pointer(win, p, [7.05]);
+    shoot(win, { x: 0, y: 0, w: 560, h: 420 });
+    note("A separate task? Claude<br>opens it in a new tab.", noteA(t, 2.4, 4.3), ['[data-key^="pay:"]', ".ttab:nth-child(2)"]);
+    note("It watches that tab and<br>comes back with the result.", noteA(t, 4.8, 6.6), [".tbody", '[data-key^="pay:"]'], { under: true, dy: 14 });
+    note("On by default. Untick<br>it here to turn it off.", noteA(t, 7.6, 9.8), [".menu"]);
   } },
 
   lang: { dur: 5, draw(t) {
@@ -1390,7 +1446,9 @@ const THEMES = {
     frame(el, r) { el.classList.add("shot"); return { el, r }; },
     // A note becomes one numbered tag: its areas stay as they are, the rest of the window
     // goes flat grey, and a leader runs from an orange dot on the first area to the tag.
-    callout({ text, a, target, dy = 24, above = false }) {
+    // under: the tag sits inside the first area, under it, with a short wire straight down
+    // (for an area as wide as the stage, where a tag beside it would straddle its edge).
+    callout({ text, a, target, dy = 24, above = false, under = false }) {
       const shot = stage.querySelector(".shot");
       // A selector string is one area around all it matches; { each } is an area per element.
       const holes = target.flatMap((sel) => sel.each ? [...shot.querySelectorAll(sel.each)].map((e) => stageBox([e], 3)) : [stageBox([...shot.querySelectorAll(sel)], 3)])
@@ -1402,13 +1460,14 @@ const THEMES = {
       const right = R.x + R.w + 24 < FW, left = !right && R.x > 24;
       const at = { x: right ? R.x + R.w : left ? R.x : R.x + R.w - 16, y: right || left ? R.y + Math.min(R.h, 60) / 2 : R.y };
       const ex = right ? Math.min(FW - 10, at.x + 14) : left ? Math.max(10, at.x - 14) : at.x;
-      const x = Math.max(8, Math.min(FW - wd - 8, ex - wd + 30));
+      const x = under ? Math.min(FW - wd - 8, R.x + 12) : Math.max(8, Math.min(FW - wd - 8, ex - wd + 30));
       const tag = html(`<span class="num">1</span><div>${text}</div>`, `left:${x}px;top:0;width:${wd}px;clip-path:inset(0 ${(1 - easeOut(Math.min(1, 2 * a))) * 100}% 0 0)`);
       tag.className = "dtag";
-      const th = tag.offsetHeight, below = !above && FH - (R.y + R.h) >= R.y;
+      const th = tag.offsetHeight, below = under || (!above && FH - (R.y + R.h) >= R.y);
       const y = below ? R.y + R.h + dy : Math.max(8, R.y - dy - th);
       tag.style.top = y + "px";
-      wires([[at, { x: ex, y: at.y }, { x: ex, y: below ? y : y + th }]], a);
+      if (under) wires([[{ x: x + 30, y: R.y + R.h }, { x: x + 30, y }]], a);
+      else wires([[at, { x: ex, y: at.y }, { x: ex, y: below ? y : y + th }]], a);
       stage.appendChild(tag);
     },
     // Video: [from, to, areas] per feature scene.

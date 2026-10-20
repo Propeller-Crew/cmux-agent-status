@@ -114,6 +114,9 @@ Click the card or a dot to flip pages.
 <td width="50%" align="center" valign="top"><br><img src="docs/media/features/update.gif" alt="A New version chip appears above the card; clicking Update runs update.sh in a new tab" width="92%"><br><br><b>New version, one click</b><br><sub>A chip when a release is out; it runs update.sh in a tab</sub><br><br></td>
 <td width="50%" align="center" valign="top"><br><img src="docs/media/features/indicator.gif" alt="Right-click the Working header, Working indicator, Pulse; then Braille; the working rows change" width="92%"><br><br><b>Pick the working indicator</b><br><sub>Three dots, colour, pulse or braille</sub><br><br></td>
 </tr>
+<tr>
+<td colspan="2" align="center"><br><img src="docs/media/features/newtabs.gif" alt="A separate bug asked in one tab opens in a new tab of its own, Claude comes back with the result; right-click a header shows Tasks in new tabs ticked" width="60%"><br><br><b>Tasks in new tabs</b><br><sub>Claude hands a separate task to a new tab and reports back. On by default; untick it in the right-click menu</sub><br><br></td>
+</tr>
 </table>
 
 <details>
@@ -127,6 +130,7 @@ Click the card or a dot to flip pages.
 - **Language** follows macOS; switch with right-click on the activity card or any section header.
 - **New version**: once a day the sync job checks for a newer release; nothing updates on its own (see [Updating](#updating)).
 - **Working indicator**: three dots by default; the same right-click → **Working indicator** offers a colour-changing icon, a pulse or a braille spinner.
+- **Tasks in new tabs** is **on by default**, after an install and after an update: a Claude Code skill, [`skills/cmux-tabs`](skills/cmux-tabs/SKILL.md), that comes with the sidebar. When you ask Claude for something that drifts from what the tab is about (another project, a separate bug, a long job), it opens a new tab in the same workspace with its own Claude (`claude -w` in a git repo, so it works on its own worktree) and a brief that stands on its own, tells you in one line, watches that tab and comes back with the result. Small things and follow-ups stay where they are. The first three times it also says that the sidebar set this up and how to turn it off (counted in `~/.claude/cmux-tabs-notices`). **To turn it off**: right-click a section header or the activity card → untick **Tasks in new tabs**, or `install.sh --no-tabs`. The sync job keeps a link to the skill in `~/.claude/skills` while it's ticked and removes only that link when it isn't, so a change applies to Claude sessions started after it.
 
 </details>
 
@@ -138,7 +142,7 @@ Needs macOS. One command:
 curl -fsSL https://raw.githubusercontent.com/sahneo/cmux-claude-sidebar/master/install.sh | bash
 ```
 
-It fetches the latest release into `~/.cmux-claude-sidebar` and offers to install cmux with Homebrew (`brew install --cask cmux`) if it's missing. Then it links the sidebar into `~/.config/cmux` and adds only the missing keys from [`config/cmux.snippet.jsonc`](config/cmux.snippet.jsonc) to your `cmux.json`. It backs the file up first and keeps the values you already set. For the limit card it sets a minimal Claude Code status line if you have none, and if you have your own it shows the two lines to add. Finally it loads two small launchd jobs and selects the sidebar. The glass sidebar (with a solid terminal) is a y/N question. To see what it would do without changing anything, run `curl -fsSL … | bash -s -- --dry-run`.
+It fetches the latest release into `~/.cmux-claude-sidebar` and offers to install cmux with Homebrew (`brew install --cask cmux`) if it's missing. Then it links the sidebar into `~/.config/cmux` and adds only the missing keys from [`config/cmux.snippet.jsonc`](config/cmux.snippet.jsonc) to your `cmux.json`. It backs the file up first and keeps the values you already set. For the limit card it sets a minimal Claude Code status line if you have none, and if you have your own it shows the two lines to add. Finally it loads two small launchd jobs and selects the sidebar. The glass sidebar (with a solid terminal) is a y/N question. **Tasks in new tabs** is on (`--no-tabs` to skip it, or untick it in the sidebar later). To see what it would do without changing anything, run `curl -fsSL … | bash -s -- --dry-run`.
 
 ### Or paste this into Claude Code
 
@@ -147,7 +151,7 @@ Install the Claude sidebar for cmux for me by following
 https://github.com/sahneo/cmux-claude-sidebar/blob/master/INSTALL.md
 ```
 
-Claude reads [INSTALL.md](INSTALL.md), shows you the plan, asks about the glass sidebar, installs and checks the result.
+Claude reads [INSTALL.md](INSTALL.md), shows you the plan, asks about the glass sidebar, tells you Tasks in new tabs is on and how to turn it off, installs and checks the result.
 
 ### By hand
 
@@ -173,7 +177,7 @@ What the script does, if you'd rather do it yourself:
 
 The `automation` socket mode in the snippet is required: the sync job runs from launchd, outside cmux. `config/ghostty.config` is optional, part of the glass sidebar: it keeps the terminal opaque next to the glass, with a softer background (the themes in `config/themes`, off-white in light mode, dark gray in dark) and some room from the sidebar's edge; it goes to `~/.config/ghostty/config`. The glass itself is cmux's sidebar material (`defaults write com.cmuxterm.app sidebarMaterial -string menu`, `sidebarBlendMode -string behindWindow`, and `sidebarState -string active` so it stays glass when the window isn't focused) and doesn't need a translucent terminal. A theme picked in cmux's Settings → Themes wins over the soft one; the installer says so when it finds one.
 
-Uninstall: right-click the sidebar button → Workspaces, then stop the background jobs: `launchctl bootout gui/$(id -u)/com.propeller.cmux-last-prompt` and `…/com.propeller.cmux-window-watch`. Your previous settings are in `~/.config/cmux/cmux.json.bak-*` and `~/.claude/settings.json.bak-*`.
+Uninstall: right-click the sidebar button → Workspaces, then stop the background jobs: `launchctl bootout gui/$(id -u)/com.propeller.cmux-last-prompt` and `…/com.propeller.cmux-window-watch`, and remove the skill link: `rm ~/.claude/skills/cmux-tabs`. Your previous settings are in `~/.config/cmux/cmux.json.bak-*` and `~/.claude/settings.json.bak-*`.
 
 ## Updating
 
@@ -202,6 +206,7 @@ The installer and `update.sh` only move their own clone. If the sidebar runs fro
 | --- | --- | --- |
 | `sidebars/agent-status.js` | `~/.config/cmux/sidebars/` | The sidebar (cmux's reactive JS runtime). Started from cmux's bundled `workspaces.js` template. |
 | `scripts/last-prompt-sync.py` | `~/.config/cmux/` | Every 15 s: last prompt per workspace from the Claude transcripts, background work, agent progress, usage limits. Writes them into the workspace description (`last prompt @<epoch> · bg · zz@<epoch>`, plus `lim:… · lang:…` on one workspace), the only field an outside process can set and a sidebar can read. Leaves descriptions in any other format alone. |
+| `skills/cmux-tabs/` | `~/.claude/skills/cmux-tabs`, while ticked | Tasks in new tabs: when Claude hands a separate task to a new cmux tab, and how; `notice.sh` counts the first three explanations. The sync job links it unless the owner workspace carries `tabs:off`. |
 | `scripts/update.sh` | `~/.config/cmux/update.sh` | Moves the install to the newest release and re-runs `install.sh --update`. The New version chip runs it; the sync job writes `upd:<tag>:<release page>` on one workspace when GitHub has a newer release (checked once a day). |
 | `scripts/extract-claude-icon.swift` | run by `install.sh` | Copies cmux's own Claude icon to `~/.config/cmux/icons/claude.png` for the tab-strip button. |
 | `launchd/com.propeller.cmux-last-prompt.plist` | `~/Library/LaunchAgents/` | Runs the sync job. Log: `~/.config/cmux/last-prompt-sync.log`. |

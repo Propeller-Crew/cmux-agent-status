@@ -26,7 +26,7 @@ For every cmux workspace this writes into its description:
   " · lim:<5h %>/<5h reset>/<week %>/<week reset>" (Claude Code usage limits, from ~/.claude/rate-limits.json, which your status
   line writes), " · lang:uk|en" (the sidebar's language, set from the sidebar),
   " · spin:color|pulse|dots|braille" (how a working row shows it works, set from the
-  sidebar),
+  sidebar), " · tabs:on|off" (the "Tasks in new tabs" tick, see below),
   " · upd:<tag>:<release page>" (a newer release is out, see below) and
   " · updhide:<tag>" (the sidebar's chip for that release was hidden, carried here).
 Descriptions that aren't in this format are left alone.
@@ -34,6 +34,12 @@ Descriptions that aren't in this format are left alone.
 Once a day, on an install that sits on a release (see install_state()), one request to
 GitHub's releases/latest, without a token, says whether a newer release is out; without
 a network nothing happens until the next day. A development clone never asks.
+
+"tabs:on", or no token (it's on by default), links the skill in skills/cmux-tabs into
+~/.claude/skills, so new Claude sessions open a separate task in a new cmux tab;
+"tabs:off" takes away that link, and only a link to a clone of this repo: a file or link
+of someone else's under that name stays. `--tabs on|off` sets it from the command line
+(install.sh --tabs / --no-tabs).
 
 While a batch of background agents runs, the workspace also gets a "done/total"
 progress bar (cmux set-progress), counted from <session>/subagents/*.meta.json
@@ -82,7 +88,7 @@ CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
 # "skin:" is left over from the System 1 look (tag system1-skin): still ours, so the
 # workspace carrying it isn't dropped, and gone from the next description written.
-TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille)|upd:v\d+\.\d+\.\d+:\S+|updhide:v\d+\.\d+\.\d+)$")
+TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille)|tabs:(on|off)|upd:v\d+\.\d+\.\d+:\S+|updhide:v\d+\.\d+\.\d+)$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 # The name the "Claude workspace" command gives a new workspace (config/cmux.snippet.jsonc
 # and its Ukrainian variant), and the tab titles Claude shows before it names the chat.
@@ -114,6 +120,9 @@ RESUME_FLAGS = {"--permission-mode": True, "--model": True, "--add-dir": True,
 REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 # Where install.sh puts its own clone; install.sh also marks the clones it manages.
 MANAGED_DIR = os.path.expanduser("~/.cmux-claude-sidebar")
+# The skill the "Tasks in new tabs" tick turns on, and where Claude Code looks for skills.
+TABS_SKILL = os.path.join(REPO, "skills", "cmux-tabs")
+SKILLS_DIR = os.path.expanduser("~/.claude/skills")
 RELEASE = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
 UPDATE_EVERY = 24 * 3600
 UPDATE_TIMEOUT = 3
@@ -688,6 +697,51 @@ def swap_owner_token(prefix, value):
         "--action", "set-description", "--description", " · ".join(parts))
 
 
+def apply_tabs_skill(on, dry_run=False):
+    """Links the cmux-tabs skill into ~/.claude/skills, or takes away only our own link."""
+    path = os.path.join(SKILLS_DIR, os.path.basename(TABS_SKILL))
+    target = os.readlink(path) if os.path.islink(path) else None
+    if on:
+        if target == TABS_SKILL:
+            return
+        if os.path.lexists(path) and not ours_skill_link(target):
+            return                     # someone's own skill by that name
+        if not dry_run:
+            os.makedirs(SKILLS_DIR, exist_ok=True)
+            if target is not None:
+                os.remove(path)        # ours, from another clone (or gone)
+            os.symlink(TABS_SKILL, path)
+    elif target is not None and ours_skill_link(target) and not dry_run:
+        os.remove(path)
+
+
+def ours_skill_link(target):
+    """A link to skills/cmux-tabs in a clone of this repo (this one, an older one, or a removed one)."""
+    if target is None or os.path.normpath(target).split(os.sep)[-2:] != ["skills", "cmux-tabs"]:
+        return False
+    clone = os.path.dirname(os.path.dirname(os.path.normpath(target)))
+    return target == TABS_SKILL or not os.path.exists(target) \
+        or os.path.exists(os.path.join(clone, "scripts", "last-prompt-sync.py"))
+
+
+def set_tabs(value):
+    """`--tabs on|off`: what the sidebar's tick does, for install.sh. With cmux closed, the
+    choice waits in the watch state ("tabs:" = "<on|off>@<epoch ms>") and the next full run
+    with workspaces puts it on the owner once, over a token left from before."""
+    state = read_watch_state()
+    state["tabs:"] = f"{value}@{int(time.time() * 1000)}"
+    os.makedirs(os.path.dirname(WATCH_STATE), exist_ok=True)
+    tmp = WATCH_STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, WATCH_STATE)
+    try:
+        swap_owner_token("tabs:", value)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass                           # cmux isn't open
+    apply_tabs_skill(value == "on")
+
+
 def name_new_workspaces(sessions, dry_run):
     """A workspace opened by the Claude command keeps its placeholder name: Claude titles
     its tab after the first prompt, not the workspace. Give the workspace that title."""
@@ -782,6 +836,12 @@ def main(dry_run=False):
     spin = carried(ours, "spin:") or cache.get("_spin")
     cache["_spin"] = spin
     watched = read_watch_state()
+    tabs = carried(ours, "tabs:") or cache.get("_tabs")
+    asked, _, asked_at = watched.get("tabs:", "").partition("@")
+    if ours and asked in ("on", "off") and asked_at.isdigit() and int(asked_at) > cache.get("_tabs_at", 0):
+        tabs, cache["_tabs_at"] = "tabs:" + asked, int(asked_at)   # `--tabs`, once
+    cache["_tabs"] = tabs
+    apply_tabs_skill(tabs != "tabs:off", dry_run)
     win = "win:" + watched["win:"] if "win:" in watched else carried(ours, "win:")
     download = "dl:" + watched["dl:"] if "dl:" in watched else carried(ours, "dl:")
     focus = carried(ours, "focus:")
@@ -824,6 +884,7 @@ def main(dry_run=False):
             seen if is_owner else None,
             lang if is_owner else None,
             spin if is_owner else None,
+            tabs if is_owner else None,
             update if is_owner else None,
             hidden if is_owner else None,
         ]))
@@ -847,5 +908,7 @@ if __name__ == "__main__":
     elif len(sys.argv) == 4 and sys.argv[1] == "--download" and sys.argv[2].isdigit():
         # quote() keeps spaces and " · " out of the token; the sidebar decodes it.
         set_owner_token("dl:", f"{sys.argv[2]}:{quote(sys.argv[3])}")
+    elif len(sys.argv) == 3 and sys.argv[1] == "--tabs" and sys.argv[2] in ("on", "off"):
+        set_tabs(sys.argv[2])
     else:
         main(dry_run="--dry-run" in sys.argv)

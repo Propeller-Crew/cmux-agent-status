@@ -33,6 +33,8 @@ Then ask:
 1. **Glass sidebar?** The desktop shows blurred through the sidebar, while the terminal stays solid, on a soft off-white or dark gray background (sets the cmux sidebar material, adds `config/ghostty.config` to `~/.config/ghostty/config` and copies its two themes to `~/.config/ghostty/themes`). Default no.
 2. Only if the dry run says they have **their own status line** that doesn't save the limits: may you add the two lines it shows to their status line script? The limit card stays empty without them. Show the exact lines and the file before editing; back the file up first.
 
+Also tell them, in one or two lines: **Tasks in new tabs** comes on with the sidebar. When they ask Claude for something that drifts from the current tab (another project, a separate bug, a long job), Claude opens a new cmux tab with its own Claude and a brief, watches it and reports back. To turn it off: right-click a sidebar header → untick *Tasks in new tabs*; if they already know they don't want it, add `--no-tabs` to the install command.
+
 ## 4. Install
 
 ```sh
