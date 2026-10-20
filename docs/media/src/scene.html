@@ -635,7 +635,7 @@ const SHORT = {
 `,
 };
 
-const PANEL_MENU = ["Українська", "English", "-", { label: "Working indicator", sub: true }];
+const PANEL_MENU = ["Українська", "English", "-", { label: "Working indicator", sub: true }, "Tasks in new tabs"];
 const SPINNERS = [["color", "Colour"], ["pulse", "Pulse"], ["dots", "Three dots"], ["braille", "Braille ⠋⠙⠹"]];
 const spinMenu = (cur) => SPINNERS.map(([k, label]) => (k === cur ? "✓ " : "") + label);
 // update.sh's output, wrapped where the feature window's terminal wraps it.
@@ -951,6 +951,57 @@ const FEATS = {
     shoot(box, SB_REGION(0, 282));
     const rows = ['[data-key="h:working"], [data-key="pay"], [data-key="docs"], [data-key="notes"]'];
     note("Three dots, or a colour,<br>a pulse or braille.", Math.max(noteA(t, 2.3, 3.5), noteA(t, 5.3, 7.1)), rows);
+  } },
+
+  newtabs: { dur: 9.2, draw(t) {
+    const w = only(["pay", "copy", "notes", "dash"]);
+    w.selected = "pay";
+    w.termTabs = [{ title: "Payments refactor", on: true }];
+    const ask = "the login page 500s on Safari, can you look?";
+    w.termBody = `<span class="usr">&gt; switch checkout to the new
+  payments client</span>
+
+<span class="acc">⏺</span> <b>Update</b>(src/checkout/pay.ts)
+`;
+    w.typed = ask.slice(0, Math.round(span(t, 2.7, 3.6) * ask.length));
+    if (t >= 3.8) {
+      w.typed = "";
+      w.termBody += `
+<span class="usr">&gt; the login page 500s on Safari,
+  can you look?</span>
+`;
+    }
+    if (t >= 4.3) {
+      w.termBody += `
+<span class="acc">⏺</span> That's a separate bug, so it gets
+  its own tab: <b>Safari login 500</b>.
+  I'll report back here.
+`;
+      w.termTabs.push({ title: "Safari login 500", on: false, in: easeOut(span(t, 4.3, 4.6)) });
+    }
+    if (t >= 6.9) {
+      w.termBody += `
+<span class="acc">⏺</span> Safari login 500 is done: PR #42
+  sets SameSite on the session
+  cookie. Merge it?
+`;
+    }
+    const trans = steps(t, w, [
+      [4.4, (w) => { w.rows.pay.tabs = [{ title: "Payments refactor", state: "working", ago: 120 }, { title: "Safari login 500", state: "working", ago: 0 }]; }, 0.6],
+      [6.7, (w) => { w.rows.pay.tabs[1].state = "unread"; }, 0.3],
+    ]);
+    // Right-click the Working header, then the last item. Menu rows are 22 px under 5 px
+    // of padding, the divider 11 px: the new-tabs row's middle is 93 px below the top.
+    const hx = 40, hy = rowY(w, "h:working") + 14, my = hy + 2, iy = my + 93;
+    const win = featWin(w, t, trans);
+    const p = track(t, [[0.1, 330, 330], [0.8, hx, hy], [1.0, hx, hy], [1.5, 120, iy], [2.3, 120, iy], [2.9, 420, 380]]);
+    p.t = t;
+    if (t >= 0.9 && t < 2.35) menu(win, PANEL_MENU, hx + 2, my, 160, t >= 1.45 ? 4 : -1);
+    pointer(win, p, [0.95, 2.3]);
+    shoot(win, { x: 0, y: 0, w: 560, h: 420 });
+    note("Tick it once: a separate<br>task gets its own tab.", noteA(t, 1.5, 2.4), [".menu"]);
+    note("Claude opens the tab<br>and writes it a brief.", noteA(t, 4.6, 6.6), ['[data-key^="pay:"]', ".ttab:nth-child(2)"]);
+    note("It watches that tab and<br>comes back with the result.", noteA(t, 7.1, 9.0), ['[data-key^="pay:"]', ".tbody"]);
   } },
 
   lang: { dur: 5, draw(t) {
