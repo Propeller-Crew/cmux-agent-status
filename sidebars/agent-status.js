@@ -45,6 +45,7 @@ const STRINGS = {
     resets: (at, left) => "at " + at + " · " + left, resetDone: "limit has reset",
     skin: "Look", skinNormal: "Normal (glass)", skinSystem1: "System 1 (pixel terminal too)",
     skinLite: "System 1 lite (terminal keeps its font)",
+    spinner: "Working indicator", spinColor: "Colour", spinPulse: "Pulse", spinDots: "Three dots", spinBraille: "Braille ⠋⠙⠹",
   },
   uk: {
     pinned: "Закріплені", needs: "Чекає на тебе", unread: "Нове", working: "В роботі", fresh: "Без задачі", done: "Готово", inactive: "Сплять",
@@ -64,6 +65,7 @@ const STRINGS = {
     resets: (at, left) => "о " + at + " · " + left, resetDone: "ліміт оновився",
     skin: "Вигляд", skinNormal: "Звичайний (скло)", skinSystem1: "System 1 (і піксельний термінал)",
     skinLite: "System 1 lite (шрифт у терміналі звичайний)",
+    spinner: "Індикатор", spinColor: "Колір", spinPulse: "Пульс", spinDots: "Три крапки", spinBraille: "Брайль ⠋⠙⠹",
   },
 };
 const DURATION = { en: ["h", "m"], uk: [" год", " хв"] };
@@ -101,7 +103,7 @@ const token = (w, name) => {
 };
 // Account-wide tokens live on one workspace (the sync job picks it); read once per
 // data update. { id, v }: the owner's id and the value.
-const GLOBAL_TOKENS = ["lim:", "day:", "win:", "focus:", "dl:", "dlseen:", "lang:", "skin:"];
+const GLOBAL_TOKENS = ["lim:", "day:", "win:", "focus:", "dl:", "dlseen:", "lang:", "skin:", "spin:"];
 const globalTokens = stable(() => {
   const out = {};
   for (const w of data.workspaces() ?? []) {
@@ -178,7 +180,23 @@ const skinMenu = () => Menu(() => t("skin"), [
   Button(() => (skin() === "system1" ? "✓ " : "") + t("skinSystem1"), () => setSkin("system1")),
   Button(() => (skin() === "system1-lite" ? "✓ " : "") + t("skinLite"), () => setSkin("system1-lite")),
 ]);
-const panelMenu = () => [...languageMenu(), Divider(), skinMenu()];
+// --- working indicator -------------------------------------------------------------
+// How a working row shows it works, picked from the right-click menu and stored as a
+// "spin:" token. Each steps once a clock tick (a sidebar has no faster timer); a turning
+// or tweened icon is out: cmux animates it and lays out the whole window every frame.
+const SPINNERS = [["color", "spinColor"], ["pulse", "spinPulse"], ["dots", "spinDots"], ["braille", "spinBraille"]];
+const BRAILLE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+const [spinOverride, setSpinOverride] = signal(null);
+const spinner = computed(() => spinOverride() ?? globalToken("spin:")?.v ?? "dots");
+
+function setSpinner(name) {
+  setSpinOverride(name);
+  setGlobalToken("spin:", name);
+}
+
+const spinnerMenu = () => Menu(() => t("spinner"), SPINNERS.map(([name, label]) =>
+  Button(() => (spinner() === name ? "✓ " : "") + t(label), () => setSpinner(name))));
+const panelMenu = () => [...languageMenu(), Divider(), skinMenu(), spinnerMenu()];
 
 // A view that exists only while cond() holds (there is no conditional view helper):
 // a keyed list of one item mounts it, and of none unmounts it.
@@ -1034,14 +1052,22 @@ function activityCardBody() {
 // keeps the colours and draws the grey icons in ink, white on its black selection bar.
 function stateIcon(kind, sel = () => false) {
   const tint = (color) => () => (S1() ? ink(sel()) : color);
-  // The spinner changes colour and doesn't turn: cmux animates a rotation, and every
-  // frame of it laid out the whole window again, a full core of cmux for as long as
-  // one agent worked (20.10.2026). Only a working row's spinner follows the clock.
+  // Only the picked indicator of a working row is mounted, so only it reads the clock;
+  // the others cost nothing (see "working indicator"). It doesn't turn: cmux animates
+  // a rotation, and every frame of it laid out the whole window again, a full core of
+  // cmux for as long as one agent worked (20.10.2026).
+  const spinning = (name) => () => kind() === "working" && spinner() === name;
+  const tick = () => data.clock()?.epoch ?? 0;
   return ZStack({}, [
-    Image("progress.indicator")
+    when(spinning("color"), () => Image("progress.indicator")
       .font(12).weight("bold")
-      .color(() => SPINNER_COLORS[kind() === "working" ? (data.clock()?.epoch ?? 0) % SPINNER_COLORS.length : 0])
-      .opacity(() => (kind() === "working" ? 1 : 0)),
+      .color(() => SPINNER_COLORS[tick() % SPINNER_COLORS.length])),
+    when(spinning("pulse"), () => Circle().fill(VIOLET).frame({ width: 8, height: 8 })
+      .opacity(() => (tick() % 2 ? 0.3 : 1))),
+    when(spinning("dots"), () => HStack({ spacing: 2 }, [0, 1, 2].map((i) =>
+      Circle().fill(VIOLET).frame({ width: 4, height: 4 }).opacity(() => (tick() % 3 === i ? 1 : 0.25))))),
+    when(spinning("braille"), () => Text(() => BRAILLE[tick() % BRAILLE.length])
+      .font(13).monospaced().color(VIOLET)),
     Image("record.circle")
       .font(13).color(ORANGE)
       .opacity(() => (kind() === "needs" ? 1 : 0)),
