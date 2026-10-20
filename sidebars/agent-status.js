@@ -1083,10 +1083,10 @@ function stateIcon(kind, sel = () => false) {
       .font(13).color(BLUE)
       .opacity(() => (kind() === "unread" ? 1 : 0)),
     Image("checkmark")
-      .font(10).weight("semibold").color(tint("tertiary"))
+      .font(10).weight("semibold").color(tint("secondary"))
       .opacity(() => (kind() === "done" ? 1 : 0)),
     Image("moon.fill")
-      .font(10).color(tint("tertiary"))
+      .font(10).color(tint("secondary"))
       .opacity(() => (kind() === "inactive" ? 1 : 0)),
     Image("square.and.pencil")
       .font(10).color(TEAL)
@@ -1165,7 +1165,7 @@ function tabRow(entry) {
       .color(() => (S1() ? ink(isCurrent()) : (isCurrent() ? "primary" : "secondary"))),
     Spacer({ minLength: 0 }),
     HStack({ spacing: 8 }, [
-      Text(agoText).font(11).color(() => (S1() ? ink(isCurrent()) : "tertiary")),
+      Text(agoText).font(11).color(() => (S1() ? ink(isCurrent()) : "secondary")),
       stateIcon(kind, isCurrent).opacity(() => (kind() === "none" ? 0 : 1)),
     ])
       .fixedSize()
@@ -1256,7 +1256,7 @@ function workspaceRow(w) {
           .truncation("tail")
           .marquee()
           .color(() => (S1() ? (kind() === "inactive" && !sel() ? "#00000080" : ink(sel()))
-            : kind() === "inactive" && !sel() ? "tertiary" : "primary")),
+            : kind() === "inactive" && !sel() ? "secondary" : "primary")),
         Spacer({ minLength: 0 }),
         HStack({ spacing: 8 }, [
           Text(label)
@@ -1331,18 +1331,25 @@ function workspaceEditRow(w) {
 }
 
 function sectionHeader(id) {
-  // A coloured pill (icon, name, count) is the divider; no extra lines needed.
+  // A coloured pill (icon, name, count) is the divider; no extra lines needed. A section
+  // colour on its own tint over the glass sidebar drops under 2:1 in light mode, and no
+  // one shade holds up in both themes. So the name and count are the text colour over
+  // the section colour: very dark green in light mode, pale green in dark.
   const s = SECTIONS.find((x) => x.id === id);
   const isFirst = () => flatEntries()[0]?.id === "h:" + id;
+  const inked = (text, size, weight, ink) => ZStack({}, [
+    Text(text).font(size).weight(weight).color(s.color),
+    Text(text).font(size).weight(weight).color("primary").opacity(ink),
+  ]).fixedSize();
   return HStack({ spacing: 6 }, [
     when(() => !S1(), () => HStack({ spacing: 5 }, [
       Image(s.icon).font(10).color(s.color),
-      Text(() => t(id)).font(12).weight("semibold").color(s.color),
-      Text(() => String(sectionCount(id))).font(11).weight("bold").color(s.color).opacity(0.7),
+      inked(() => t(id), 12, "semibold", 0.7),
+      inked(() => String(sectionCount(id)), 11, "bold", 0.45),
     ])
       .paddingHorizontal(9)
       .paddingVertical(4)
-      .background(s.color + "26")
+      .background(s.color + "33")
       .cornerRadius(11)
       .fixedSize()),
     // System 1: the same coloured pill, its name and count in pixel type.
@@ -1357,7 +1364,7 @@ function sectionHeader(id) {
       .fixedSize()),
     Spacer(),
     Image("chevron.right")
-      .font(9).weight("semibold").color(s1("tertiary", INK))
+      .font(9).weight("semibold").color(s1("secondary", INK))
       .rotation(() => (collapsed()[id] ? 0 : 90))
       .frame({ width: 14, height: 14 }),
   ])
@@ -1375,7 +1382,7 @@ function sectionHeader(id) {
 function moreRow(entry) {
   return HStack({ spacing: 6 }, [
     Text(() => t("more")(entry.count)).font(12).color(s1("secondary", INK)),
-    Image("chevron.down").font(9).weight("semibold").color(s1("tertiary", INK)),
+    Image("chevron.down").font(9).weight("semibold").color(s1("secondary", INK)),
     Spacer(),
   ])
     .paddingHorizontal(10)
