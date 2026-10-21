@@ -6,7 +6,7 @@
 // Above them, the Claude Code usage limit and when it resets.
 //
 // What cmux doesn't know comes from workspace descriptions, written by
-// scripts/last-prompt-sync.py: "last prompt @<epoch> · bg · zz@<epoch> · lim:… · lang:…".
+// scripts/last-prompt-sync.py: "last prompt @<epoch> · bg · remote@<epoch> · zz@<epoch> · lim:… · lang:…".
 // cmux forgets latestAt on restart, calls a tab done as soon as Claude ends its
 // turn, and has no place for account-wide data, so the description carries it.
 //
@@ -206,10 +206,15 @@ const nowSecs = () => secs(data.clock()?.epoch) ?? Date.now() / 1000;
 
 // Every helper below accepts a missing workspace: a row's bindings can still
 // re-run for a moment after its workspace was closed.
+// A Claude on a server (ssh, mosh or et in a tab) leaves no transcripts here, so for such
+// a workspace the sync job writes "remote@<epoch>": when that terminal's screen last
+// changed. It counts like a prompt, so a live ssh session doesn't read as asleep.
 function lastPromptAt(w) {
   if (!w) return null;
-  const m = /last prompt @(\d+)/.exec(w.description ?? "");
-  return Math.max(secs(w.latestAt) ?? 0, m ? Number(m[1]) : 0) || null;
+  const d = w.description ?? "";
+  const m = /last prompt @(\d+)/.exec(d);
+  const r = d.includes("remote@") ? /(?:^| · )remote@(\d+)/.exec(d) : null;
+  return Math.max(secs(w.latestAt) ?? 0, m ? Number(m[1]) : 0, r ? Number(r[1]) : 0) || null;
 }
 
 function ago(since) {
@@ -253,9 +258,10 @@ function sleptAt(w) {
   return stored;
 }
 
-const isAsleep = (w) => {
+// last: lastPromptAt(w), when the caller has it already.
+const isAsleep = (w, last = lastPromptAt(w)) => {
   const at = sleptAt(w);
-  return !!at && !((lastPromptAt(w) ?? 0) > at);
+  return !!at && !((last ?? 0) > at);
 };
 
 function setAsleep(w, on) {
@@ -303,7 +309,10 @@ function computeAgentState(w) {
   // Turn ended, but a background shell or background agents are still going
   // and Claude will pick up when they finish (flag from the sync job).
   if (/(^| · )bg( · |$)/.test(w.description ?? "")) return { kind: "working", since: last };
-  if (isAsleep(w)) return { kind: "inactive", since: last };
+  // Claude's working line on a server's screen, changing ("rwork@<since>", sync job).
+  const remoteWork = (w.description ?? "").includes("rwork@") && /(?:^| · )rwork@(\d+)/.exec(w.description);
+  if (remoteWork) return { kind: "working", since: Number(remoteWork[1]) };
+  if (isAsleep(w, last)) return { kind: "inactive", since: last };
   if (w.unread > 0) return { kind: "unread", since: last };
   // A workspace you just opened, no prompt yet ("new" from the sync job): every
   // session starts here, and without this it would vanish into folded Sleeping.
