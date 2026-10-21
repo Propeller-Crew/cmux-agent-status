@@ -68,7 +68,11 @@ terminal you took for ssh before it was reopened is dropped from the reopen list
 
 A Claude that cmux started without its hook forwarder (`cmux hooks claude spool-forwarder`,
 a child of the claude process that carries hook events such as Stop to cmux) loses those
-events, and its row can spin over an agent that waits for you. Such a session, once it's
+events, and its row can spin over an agent that waits for you. The same goes for a Claude
+cmux has no record of to restore: cmux writes that record (its pid and launch command) from
+the SessionStart hook alone, so when that one event is lost, as on 20.10.2026 with both the
+first start and a restart typed here, cmux's next start brings the terminal back bare,
+without its Claude; a restart is the only thing that writes it again. Such a session, once it's
 free the same way as above (idle by Claude's own ~/.claude/sessions/<pid>.json for a
 minute, an empty prompt, no dialog, nothing of its own running, a workspace you aren't
 looking at), is restarted at once: `/exit`, "Keep worktree" if it asks, then
@@ -120,7 +124,7 @@ WAKE_GRACE = 2 * 3600     # a session reopened here isn't closed again for this 
 CLAUDE_SESSIONS = os.path.expanduser("~/.claude/sessions")   # Claude's own <pid>.json per live process
 FORWARDER_GRACE = 120     # a Claude younger than this may still be starting its hook forwarder
 SETTLED_FOR = 60          # idle this long by Claude's own account before it's restarted
-RELAUNCH_AFTER = 30 * 60  # a session restarted for a missing forwarder isn't again for this long
+RELAUNCH_AFTER = 30 * 60  # a session restarted because cmux lost track of it isn't again for this long
 RELAUNCH_PER_RUN = 1
 EXIT_WAIT = 15            # seconds a restart waits for Claude to quit after /exit
 CLOSE_PER_RUN = 3         # sessions closed per run, so a restart doesn't type into thirty at once
@@ -549,12 +553,22 @@ def launch_arguments(env):
         return []
 
 
-def without_forwarder(children, commands):
-    """Live Claudes started by cmux's wrapper (it adds --settings from ~/.cmuxterm) that
-    have no hook forwarder under them."""
-    return [pid for pid, cmd in commands.items()
-            if os.path.basename(cmd.split(" ", 1)[0]) == "claude" and "/.cmuxterm/claude-settings/" in cmd
-            and not any("hooks claude spool-forwarder" in commands.get(c, "") for c in children.get(pid, []))]
+def untracked(sessions, children, commands):
+    """Live Claudes started by cmux's wrapper (it adds --settings from ~/.cmuxterm) that cmux
+    has lost track of, {pid: why}: no hook forwarder under them, or no record of this
+    process to restore its session from. cmux fills that record (pid, launch command) only
+    from the session's SessionStart hook; when that one is lost, cmux's next start brings
+    the terminal back without its Claude, and no later hook mends it (21.10.2026)."""
+    bound = {s.get("session_id"): s.get("pid") for s in sessions if s.get("launch_arguments")}
+    found = {}
+    for pid, cmd in commands.items():
+        if os.path.basename(cmd.split(" ", 1)[0]) != "claude" or "/.cmuxterm/claude-settings/" not in cmd:
+            continue
+        if not any("hooks claude spool-forwarder" in commands.get(c, "") for c in children.get(pid, [])):
+            found[pid] = "no forwarder"
+        elif bound.get(claude_session(pid).get("sessionId")) != pid:
+            found[pid] = "cmux can't restore it"
+    return found
 
 
 def still_exiting(pid):
@@ -578,8 +592,8 @@ def keep_worktree(ws, surface):
         cmux_ok("send-key", "--force", "--workspace", ws, "--surface", surface, "enter")
 
 
-def relaunch_without_forwarder(sessions, ours, remote, children, commands, cache, dry_run):
-    """Restarts a free Claude that has no hook forwarder (see the top). Its reopen goes
+def relaunch_untracked(sessions, ours, remote, children, commands, cache, dry_run):
+    """Restarts a free Claude that cmux has lost track of (see the top). Its reopen goes
     through close_and_reopen's list, marked "now" so it doesn't wait for you. Not in a
     terminal with ssh, mosh or et in front (remote): a Claude stopped with Ctrl-Z under
     an ssh would get /exit typed into the server."""
@@ -589,7 +603,7 @@ def relaunch_without_forwarder(sessions, ours, remote, children, commands, cache
     by_id = {w["id"]: w for w in ours}
     by_surface = {s.get("surface_id"): s for s in sessions}
     left = RELAUNCH_PER_RUN
-    for pid in without_forwarder(children, commands):
+    for pid, why in untracked(sessions, children, commands).items():
         me = claude_session(pid)
         sid, cwd = me.get("sessionId") or "", me.get("cwd")
         if not SESSION_ID.fullmatch(sid) or not cwd or now - relaunched.get(sid, 0) < RELAUNCH_AFTER:
@@ -601,7 +615,7 @@ def relaunch_without_forwarder(sessions, ours, remote, children, commands, cache
         w = by_id.get(ws)
         if not w or not surface or surface in closed or surface.upper() in remote:
             continue
-        label = f"{w.get('title', '')[:40]} (pid {pid}, no forwarder)"
+        label = f"{w.get('title', '')[:40]} (pid {pid}, {why})"
         # Claude resumes a conversation from the folder it was started in.
         transcript = os.path.join(os.path.expanduser("~/.claude/projects"),
                                   re.sub(r"[^A-Za-z0-9]", "-", cwd), sid + ".jsonl")
@@ -998,7 +1012,7 @@ def main(dry_run=False):
     cache.pop("_unstuck", None)      # left by the set_agent_lifecycle attempt this replaced
     cache.pop("_skin", None)         # left by the System 1 look
     name_new_workspaces(sessions, tree, dry_run)
-    relaunch_without_forwarder(sessions, ours, remote, children, commands, cache, dry_run)
+    relaunch_untracked(sessions, ours, remote, children, commands, cache, dry_run)
     # Asleep the way the sidebar sees it: activity on a server counts like a prompt.
     awake = {**latest}
     for ws, (on_server, _) in activity.items():
