@@ -127,6 +127,7 @@ SETTLED_FOR = 60          # idle this long by Claude's own account before it's r
 RELAUNCH_AFTER = 30 * 60  # a session restarted because cmux lost track of it isn't again for this long
 RELAUNCH_PER_RUN = 1
 EXIT_WAIT = 15            # seconds a restart waits for Claude to quit after /exit
+GONE_AFTER = 10 * 60      # a closed session's workspace missing this long from cmux's answers is gone
 CLOSE_PER_RUN = 3         # sessions closed per run, so a restart doesn't type into thirty at once
 # A session on a server: the clients whose foreground in a tab means one (see the top).
 REMOTE_CLIENTS = {"ssh", "mosh-client", "mosh", "et"}
@@ -451,19 +452,25 @@ def input_state(ws, surface):
         return {}
 
 
-def close_and_reopen(sessions, ours, latest, busy, remote, children, commands, cache, dry_run):
+def close_and_reopen(sessions, ours, workspaces, latest, busy, remote, children, commands, cache, dry_run):
     """Closes sleeping Claude sessions and reopens them when you come back (see the top).
+    workspaces: all of cmux's, ours or not, as it answered this run.
     remote: the terminals with ssh, mosh or et in front ({surface: workspace}), never typed into."""
     now = time.time()
     closed = cache.setdefault("_closed", {})   # surface → {"ws", "cmd", "at"}
     woke = cache.setdefault("_woke", {})       # workspace → when it was reopened here
     by_id = {w["id"]: w for w in ours}
 
+    present = {w["id"]: w for w in workspaces}   # one with a description of your own too
     for surface, c in list(closed.items()):
-        w = by_id.get(c["ws"])
+        w = present.get(c["ws"])
         if not w:
-            closed.pop(surface)                # the workspace is gone
+            # Gone only once cmux has gone on answering without it: right after a cmux
+            # restart its list can still be filling up (20.10.2026: a session lost so).
+            if now - c.setdefault("gone", now) > GONE_AFTER:
+                closed.pop(surface)
             continue
+        c.pop("gone", None)
         if surface.upper() in remote:
             closed.pop(surface)                # you took the terminal for ssh: resuming there would type into the server
             continue
@@ -764,8 +771,18 @@ def update_token(cache):
     return f"upd:{latest[0]}:{quote(latest[1], safe=':/')}"
 
 
-def our_workspaces():
-    workspaces = cmux_json("workspace", "list", "--json").get("workspaces", [])
+def all_workspaces():
+    """Every cmux workspace, or None when cmux didn't answer (quitting, restarting): an
+    empty list then would read as "every workspace was closed"."""
+    try:
+        r = subprocess.run([CMUX, "workspace", "list", "--json"], capture_output=True, text=True,
+                           timeout=30, env={**os.environ, "CMUX_QUIET": "1"})
+        return json.loads(r.stdout)["workspaces"] if r.returncode == 0 else None
+    except (subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return None
+
+
+def our_workspaces(workspaces):
     return [w for w in workspaces
             if all(TOKEN.match(p) for p in (w.get("description") or "").split(" · ") if p)]
 
@@ -796,7 +813,7 @@ def set_owner_token(prefix, value):
 
 
 def swap_owner_token(prefix, value):
-    ours = our_workspaces()
+    ours = our_workspaces(all_workspaces() or [])
     if not ours:
         return
     owner = ours[0]
@@ -937,7 +954,12 @@ def main(dry_run=False):
             run(CMUX, "clear-progress", "--workspace", ws)
             shown.pop(ws, None)
 
-    ours = our_workspaces()
+    workspaces = all_workspaces()
+    if workspaces is None:      # cmux didn't answer: nothing below can be judged by it
+        with open(CACHE, "w") as f:
+            json.dump(cache, f)
+        return
+    ours = our_workspaces(workspaces)
     # Account-wide tokens (usage limit, sidebar language) ride on one workspace: the first of ours.
     owner = ours[0]["id"] if ours else None
     limit = rate_limit_token()
@@ -1017,7 +1039,7 @@ def main(dry_run=False):
     awake = {**latest}
     for ws, (on_server, _) in activity.items():
         awake[ws] = max(awake.get(ws) or 0, on_server)
-    close_and_reopen(sessions, ours, awake, busy, remote, children, commands, cache, dry_run)
+    close_and_reopen(sessions, ours, workspaces, awake, busy, remote, children, commands, cache, dry_run)
     with open(CACHE, "w") as f:
         json.dump(cache, f)
 
