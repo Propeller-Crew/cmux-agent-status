@@ -58,6 +58,7 @@ The same six agents in the same space: stock cmux lists every folder, branch and
 
 - **Needs you**: a permission prompt or a question is open. **New**: done, not read yet (tinted blue). **No task yet**: a workspace you just opened. **Sleeping**: no prompt for a day, or parked by hand.
 - **Last time you wrote here** is read from Claude's transcripts; cmux resets its own timestamps on restart, which turned every tab into "22h".
+- **Claude on a server** (`ssh`, `mosh` or `et` in a tab) leaves no transcripts on your Mac, so there the time is when that terminal's screen last changed, and the row is **Working** while the screen shows Claude's working line ("✽ Julienning… (6m 28s · …)"), **New** when the server's Claude sends a notification, **Done** otherwise. It sleeps only after a day with nothing on that screen. The sync job never types into such a tab.
 - **Background work**: Claude ended its turn, but a background command or background agents are still running and it will pick up on its own. An idle dev server doesn't count.
 - **Progress** comes from the agents' own transcripts ("12/16") while a batch runs.
 - **Sleep**: drag a row into Sleeping or right-click → Put to sleep.
@@ -205,7 +206,7 @@ The installer and `update.sh` only move their own clone. If the sidebar runs fro
 | Piece | Where | What |
 | --- | --- | --- |
 | `sidebars/agent-status.js` | `~/.config/cmux/sidebars/` | The sidebar (cmux's reactive JS runtime). Started from cmux's bundled `workspaces.js` template. |
-| `scripts/last-prompt-sync.py` | `~/.config/cmux/` | Every 15 s: last prompt per workspace from the Claude transcripts, background work, agent progress, usage limits. Writes them into the workspace description (`last prompt @<epoch> · bg · zz@<epoch>`, plus `lim:… · lang:…` on one workspace), the only field an outside process can set and a sidebar can read. Leaves descriptions in any other format alone. |
+| `scripts/last-prompt-sync.py` | `~/.config/cmux/` | Every 15 s: last prompt per workspace from the Claude transcripts, background work, agent progress, usage limits. For a tab with ssh, mosh or et in front, when its screen last changed and whether Claude works there. Writes them into the workspace description (`last prompt @<epoch> · bg · remote@<epoch> · rwork@<epoch> · zz@<epoch>`, plus `lim:… · lang:…` on one workspace), the only field an outside process can set and a sidebar can read. Leaves descriptions in any other format alone. |
 | `skills/cmux-tabs/` | `~/.claude/skills/cmux-tabs`, while ticked | Tasks in new tabs: when Claude hands a separate task to a new cmux tab, and how; `notice.sh` counts the first three explanations. The sync job links it unless the owner workspace carries `tabs:off`. |
 | `scripts/update.sh` | `~/.config/cmux/update.sh` | Moves the install to the newest release and re-runs `install.sh --update`. The New version chip runs it; the sync job writes `upd:<tag>:<release page>` on one workspace when GitHub has a newer release (checked once a day). |
 | `scripts/extract-claude-icon.swift` | run by `install.sh` | Copies cmux's own Claude icon to `~/.config/cmux/icons/claude.png` for the tab-strip button. |

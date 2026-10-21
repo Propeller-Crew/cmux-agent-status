@@ -15,6 +15,14 @@ For every cmux workspace this writes into its description:
 - " · st:<prompts>/<minutes>": your prompts and the wall-clock minutes this
   workspace's Claude sessions were active (an entry in a transcript, by you or by
   Claude, within 5 min of the previous one; parallel sessions count once);
+- " · remote@<epoch>" while a terminal of the workspace has ssh, mosh or et in its
+  foreground: a Claude on a server leaves no transcripts or hook records on this Mac, so
+  the sidebar would call the workspace asleep. The epoch is when that terminal's screen
+  last changed (to the minute; when it was first seen counts), the sidebar's "last time
+  something happened here". " · rwork@<epoch>" on top while that screen shows Claude's
+  working line ("✽ Julienning… (6m 28s · …)") and changed since the previous run: Claude
+  works on the server, since then. A tunnel (ssh -N, -f) or ssh run by git, scp or
+  rsync doesn't count;
 - on one workspace only, account-wide data: " · day:<prompts>/<minutes>/<agents>/<streak>"
   for today across every Claude session (streak = days in a row with a prompt),
   " · focus:<epoch>" (a running focus timer, started from the sidebar, carried here),
@@ -54,6 +62,9 @@ When you open that workspace again, `claude --resume <session> <its flags>` is t
 into the same terminal. cmux's own Agent Hibernation would do this, but it refuses these
 sessions (lifecycle_unknown, then process_scope_unsafe, 20.10.2026). Run with
 `--dry-run` to see what it would close and reopen without touching anything.
+A terminal with ssh, mosh or et in its foreground is never typed into, neither by this
+nor by the restart below: its Claude, if any, runs on the server. A closed session whose
+terminal you took for ssh before it was reopened is dropped from the reopen list.
 
 A Claude that cmux started without its hook forwarder (`cmux hooks claude spool-forwarder`,
 a child of the claude process that carries hook events such as Stop to cmux) loses those
@@ -80,6 +91,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import zlib
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
@@ -88,7 +100,7 @@ CACHE = os.path.expanduser("~/.config/cmux/last-prompt-cache.json")
 # Description tokens, joined with " · ". A description with anything else is someone's own.
 # "skin:" is left over from the System 1 look (tag system1-skin): still ours, so the
 # workspace carrying it isn't dropped, and gone from the next description written.
-TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille)|tabs:(on|off)|upd:v\d+\.\d+\.\d+:\S+|updhide:v\d+\.\d+\.\d+)$")
+TOKEN = re.compile(r"^(last prompt @\d+|new|bg|zz@\d+|remote@\d+|rwork@\d+|st:[\d/]+|lim:[\d/]+|day:[\d/]+|win:\d+|focus:\d+|dl:\d+:\S+|dlseen:\d+|lang:(uk|en)|skin:(normal|system1|system1-lite)|spin:(color|pulse|dots|braille)|tabs:(on|off)|upd:v\d+\.\d+\.\d+:\S+|updhide:v\d+\.\d+\.\d+)$")
 RATE_LIMITS = os.path.expanduser("~/.claude/rate-limits.json")   # written by the Claude Code status line
 # The name the "Claude workspace" command gives a new workspace (config/cmux.snippet.jsonc
 # and its Ukrainian variant), and the tab titles Claude shows before it names the chat.
@@ -112,6 +124,16 @@ RELAUNCH_AFTER = 30 * 60  # a session restarted for a missing forwarder isn't ag
 RELAUNCH_PER_RUN = 1
 EXIT_WAIT = 15            # seconds a restart waits for Claude to quit after /exit
 CLOSE_PER_RUN = 3         # sessions closed per run, so a restart doesn't type into thirty at once
+# A session on a server: the clients whose foreground in a tab means one (see the top).
+REMOTE_CLIENTS = {"ssh", "mosh-client", "mosh", "et"}
+# ssh flags that make it something other than a terminal session: a tunnel (-N), going to
+# the background (-f), a stdio forward (-W), a control command (-O), printing (-G -V -Q).
+SSH_NOT_A_SESSION = set("NfWOGVQ")
+SSH_TAKES_VALUE = set("BbcDEeFIiJLlmOopQRSWw")
+REMOTE_PARENTS = {"git", "scp", "sftp", "rsync", "sshfs"}   # ssh as their transport
+REMOTE_STEP = 60          # a remote screen's activity time moves in steps of this
+# Claude's line while it works: a spinner glyph, a verb with an ellipsis, then the timer.
+CLAUDE_WORKING = re.compile(r"^\s*[·✢✳✶✻✽*]\s+\S.*…\s*\(", re.M)
 # Flags carried over when a closed session is reopened, and whether each takes a value.
 # The rest (a first prompt, --resume, --continue, --session-id) belongs to the first launch.
 RESUME_FLAGS = {"--permission-mode": True, "--model": True, "--add-dir": True,
@@ -275,6 +297,72 @@ def subtree(pid, children):
     return out
 
 
+def is_remote_client(command):
+    """ssh, mosh or et as a terminal session: not a tunnel, a background ssh or a query.
+    ssh's flags come before the destination; what follows it is the remote command."""
+    args = command.split()
+    name = os.path.basename(args[0]) if args else ""
+    if name not in REMOTE_CLIENTS:
+        return False
+    i = 1
+    while name == "ssh" and i < len(args) and args[i].startswith("-") and args[i] not in ("-", "--"):
+        flags = args[i][1:]
+        for j, ch in enumerate(flags):
+            if ch in SSH_NOT_A_SESSION:
+                return False
+            if ch in SSH_TAKES_VALUE:
+                i += j == len(flags) - 1        # "-p 22": the value is the next argument
+                break
+        i += 1
+    return True
+
+
+def remote_sessions(children, commands, tree):
+    """{surface: workspace} for the cmux terminals with a remote session in the foreground.
+    A terminal is matched by its tty; a second `ps` asks only about the candidates."""
+    candidates = [pid for pid, cmd in commands.items() if is_remote_client(cmd)]
+    if not candidates:
+        return {}
+    parent = {c: p for p, kids in children.items() for c in kids}
+    base = lambda pid: os.path.basename(commands.get(parent.get(pid), "").split(" ", 1)[0])
+    candidates = [pid for pid in candidates if base(pid) not in REMOTE_PARENTS]
+    ttys = set()
+    for line in run("ps", "-o", "stat=,tty=", "-p", ",".join(map(str, candidates))).splitlines():
+        parts = line.split()
+        if len(parts) == 2 and "+" in parts[0] and parts[1] not in ("??", "-"):
+            ttys.add(parts[1])                 # "+": in the foreground of its terminal
+    if not ttys:
+        return {}
+    return {s["id"].upper(): w["id"] for window in tree.get("windows", []) for w in window.get("workspaces", [])
+            for p in w.get("panes", []) for s in p.get("surfaces", []) if s.get("tty") in ttys and s.get("id")}
+
+
+def remote_activity(remote, cache, now):
+    """{workspace: (when a remote screen there last changed, since when Claude works there
+    or None)}. One read-screen per remote terminal; the screens' hashes stay in the cache.
+    A terminal counts from the second run that sees it: an ssh that a quick command started
+    in the foreground (a copy, a one-off command on a server) is gone by then."""
+    seen = cache.setdefault("_remote", {})    # surface → {"h": screen hash, "at": changed, "work": since}
+    out = {}
+    for surface, ws in remote.items():
+        screen = run(CMUX, "read-screen", "--workspace", ws, "--surface", surface)
+        h = zlib.crc32(screen.encode())
+        s = seen.get(surface)
+        changed = s is None or s["h"] != h
+        at = (s or {}).get("at") or now
+        if changed and now - at >= REMOTE_STEP:
+            at = now
+        work = ((s or {}).get("work") or now) if changed and CLAUDE_WORKING.search(screen) else None
+        seen[surface] = {"h": h, "at": at, "work": work}
+        if s is None:
+            continue
+        last, since = out.get(ws, (0, None))
+        out[ws] = (max(last, at), min(filter(None, [since, work]), default=None))
+    for surface in [k for k in seen if k not in remote]:
+        seen.pop(surface)
+    return out
+
+
 def subagent_batch(session, since):
     """(done, total) background agents started after the last prompt.
     Claude writes a `finished` flag into <session>/subagents/agent-*.meta.json."""
@@ -359,8 +447,9 @@ def input_state(ws, surface):
         return {}
 
 
-def close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dry_run):
-    """Closes sleeping Claude sessions and reopens them when you come back (see the top)."""
+def close_and_reopen(sessions, ours, latest, busy, remote, children, commands, cache, dry_run):
+    """Closes sleeping Claude sessions and reopens them when you come back (see the top).
+    remote: the terminals with ssh, mosh or et in front ({surface: workspace}), never typed into."""
     now = time.time()
     closed = cache.setdefault("_closed", {})   # surface → {"ws", "cmd", "at"}
     woke = cache.setdefault("_woke", {})       # workspace → when it was reopened here
@@ -370,6 +459,9 @@ def close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dr
         w = by_id.get(c["ws"])
         if not w:
             closed.pop(surface)                # the workspace is gone
+            continue
+        if surface.upper() in remote:
+            closed.pop(surface)                # you took the terminal for ssh: resuming there would type into the server
             continue
         if not w.get("selected") and not c.get("now"):
             continue                           # a sleeping one waits for you to come back
@@ -397,7 +489,8 @@ def close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dr
     for s in sessions:
         ws, surface, pid = s.get("workspace_id"), s.get("surface_id"), s.get("pid")
         w = by_id.get(ws)
-        if not w or w.get("selected") or w.get("pinned") or not surface or surface in closed:
+        if not w or w.get("selected") or w.get("pinned") or not surface or surface in closed \
+                or surface.upper() in remote:
             continue
         if not pid or "claude" not in commands.get(pid, "") or s.get("agent_lifecycle") != "idle" \
                 or not SESSION_ID.fullmatch(s.get("session_id") or ""):
@@ -485,9 +578,11 @@ def keep_worktree(ws, surface):
         cmux_ok("send-key", "--force", "--workspace", ws, "--surface", surface, "enter")
 
 
-def relaunch_without_forwarder(sessions, ours, children, commands, cache, dry_run):
+def relaunch_without_forwarder(sessions, ours, remote, children, commands, cache, dry_run):
     """Restarts a free Claude that has no hook forwarder (see the top). Its reopen goes
-    through close_and_reopen's list, marked "now" so it doesn't wait for you."""
+    through close_and_reopen's list, marked "now" so it doesn't wait for you. Not in a
+    terminal with ssh, mosh or et in front (remote): a Claude stopped with Ctrl-Z under
+    an ssh would get /exit typed into the server."""
     now = time.time()
     closed = cache.setdefault("_closed", {})
     relaunched = cache.setdefault("_relaunched", {})   # session → when it was restarted here
@@ -504,7 +599,7 @@ def relaunch_without_forwarder(sessions, ours, children, commands, cache, dry_ru
         env = process_env(pid)
         ws, surface = env.get("CMUX_WORKSPACE_ID"), env.get("CMUX_SURFACE_ID")
         w = by_id.get(ws)
-        if not w or not surface or surface in closed:
+        if not w or not surface or surface in closed or surface.upper() in remote:
             continue
         label = f"{w.get('title', '')[:40]} (pid {pid}, no forwarder)"
         # Claude resumes a conversation from the folder it was started in.
@@ -742,12 +837,11 @@ def set_tabs(value):
     apply_tabs_skill(value == "on")
 
 
-def name_new_workspaces(sessions, dry_run):
+def name_new_workspaces(sessions, tree, dry_run):
     """A workspace opened by the Claude command keeps its placeholder name: Claude titles
     its tab after the first prompt, not the workspace. Give the workspace that title."""
     clean = lambda s: SPINNER_PREFIX.sub("", s or "")   # Claude's spinner glyph, as in the sidebar
     agent_surfaces = {s["surface_id"].upper() for s in sessions if s.get("surface_id")}
-    tree = cmux_json("tree", "--json", "--id-format", "both")
     for window in tree.get("windows", []):
         for w in window.get("workspaces", []):
             if clean(w.get("title")) not in PLACEHOLDER_NAMES:
@@ -771,6 +865,9 @@ def main(dry_run=False):
     tx = cache.setdefault("_tx", {})
     children, commands = process_table()
     listening = listening_pids()
+    tree = cmux_json("tree", "--json", "--id-format", "both")
+    remote = remote_sessions(children, commands, tree)
+    activity = remote_activity(remote, cache, int(time.time()))
     latest, busy, progress, per_ws = {}, set(), {}, {}
     sessions = hook_sessions()
     for s in sessions:
@@ -865,7 +962,8 @@ def main(dry_run=False):
         current = w.get("description") or ""
         fresh = not at and (("new" in current.split(" · ")) or (w["id"] not in known and not first_run))
         known.add(w["id"])
-        if not at and not fresh and w["id"] != owner:
+        on_server, server_work = activity.get(w["id"], (None, None))
+        if not at and not fresh and w["id"] != owner and not on_server and "remote@" not in current:
             continue
         sleep = next((p for p in current.split(" · ") if p.startswith("zz@")), None)
         is_owner = w["id"] == owner
@@ -873,6 +971,8 @@ def main(dry_run=False):
             f"last prompt @{at}" if at else None,
             "new" if fresh else None,
             "bg" if w["id"] in busy else None,
+            f"remote@{on_server}" if on_server else None,
+            f"rwork@{server_work}" if server_work else None,
             sleep,
             ("st:%d/%d" % (sum(st["prompts"] for st in per_ws[w["id"]]), active_minutes(per_ws[w["id"]])))
             if w["id"] in per_ws else None,
@@ -888,16 +988,22 @@ def main(dry_run=False):
             update if is_owner else None,
             hidden if is_owner else None,
         ]))
-        if current != wanted:
+        if current != wanted and wanted:
             run(CMUX, "workspace-action", "--workspace", w["id"],
                 "--action", "set-description", "--description", wanted)
+        elif current != wanted:     # an ssh session ended and left nothing: cmux refuses ""
+            run(CMUX, "workspace-action", "--workspace", w["id"], "--action", "clear-description")
 
     cache["_known"] = sorted(known & {w["id"] for w in ours})   # forget closed workspaces
     cache.pop("_unstuck", None)      # left by the set_agent_lifecycle attempt this replaced
     cache.pop("_skin", None)         # left by the System 1 look
-    name_new_workspaces(sessions, dry_run)
-    relaunch_without_forwarder(sessions, ours, children, commands, cache, dry_run)
-    close_and_reopen(sessions, ours, latest, busy, children, commands, cache, dry_run)
+    name_new_workspaces(sessions, tree, dry_run)
+    relaunch_without_forwarder(sessions, ours, remote, children, commands, cache, dry_run)
+    # Asleep the way the sidebar sees it: activity on a server counts like a prompt.
+    awake = {**latest}
+    for ws, (on_server, _) in activity.items():
+        awake[ws] = max(awake.get(ws) or 0, on_server)
+    close_and_reopen(sessions, ours, awake, busy, remote, children, commands, cache, dry_run)
     with open(CACHE, "w") as f:
         json.dump(cache, f)
 
