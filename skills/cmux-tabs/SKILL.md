@@ -36,6 +36,7 @@ This only applies inside cmux: `echo "$CMUX_WORKSPACE_ID"` prints an id. Without
      --command "cd <dir> && claude -w <name> \"\$(cat <brief>)\""
    ```
 
+   - Start it as plain `claude`, never by an absolute path (`~/.nvm/.../bin/claude`): cmux's `claude` shim on PATH adds the hooks that tell the sidebar the tab is working, done or waiting. Started by path, the tab shows no state at all.
    - In a git repo use `claude -w <name>`: Claude works in its own worktree, a separate copy, so the two sessions don't edit the same files. Outside a repo, plain `claude`.
    - The command prints `OK surface:<n> pane:<n> workspace:<n>`; keep the `surface:<n>` ref.
 
